@@ -194,25 +194,57 @@ struct GamepadVisualizerView: View {
 
     // MARK: - D-pad グリッド
 
+    /// 英語モード: 十字キーのフェイスボタン対応文字（X=左, Y=上, B=右, A=下）
+    private func englishDpadCrossChars(row: Int) -> (left: String, up: String, right: String, down: String) {
+        let r = englishTable[row]
+        let caps = gamepadInput.englishCapsLock || gamepadInput.englishSmartCaps || gamepadInput.englishShiftNext
+        func t(_ s: String) -> String { caps ? s.uppercased() : s }
+        return (left: t(r[1]), up: t(r[2]), right: t(r[3]), down: t(r[4]))
+    }
+
     private var dpadGrid: some View {
-        Grid(horizontalSpacing: 4, verticalSpacing: 4) {
+        let isEnglish = mode == .english
+        let offset = gamepadInput.activeLayer == .lb ? 5 : 0
+
+        return Grid(horizontalSpacing: 4, verticalSpacing: 4) {
             GridRow {
                 Color.clear.frame(width: 52, height: 52)
-                dpadButton(label: dpad.up, pressed: gamepadInput.pressedButtons.contains("dpadUp"))
+                if isEnglish {
+                    dpadButtonCross(chars: englishDpadCrossChars(row: 2 + offset), pressed: gamepadInput.pressedButtons.contains("dpadUp"))
+                } else {
+                    dpadButton(label: dpad.up, pressed: gamepadInput.pressedButtons.contains("dpadUp"))
+                }
                 Color.clear.frame(width: 52, height: 52)
             }
             GridRow {
-                dpadButton(label: dpad.left, pressed: gamepadInput.pressedButtons.contains("dpadLeft"))
-                Text(dpad.center)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.quaternary)
-                    .frame(width: 52, height: 52)
-                    .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 8))
-                dpadButton(label: dpad.right, pressed: gamepadInput.pressedButtons.contains("dpadRight"))
+                if isEnglish {
+                    dpadButtonCross(chars: englishDpadCrossChars(row: 1 + offset), pressed: gamepadInput.pressedButtons.contains("dpadLeft"))
+                } else {
+                    dpadButton(label: dpad.left, pressed: gamepadInput.pressedButtons.contains("dpadLeft"))
+                }
+                if isEnglish {
+                    dpadButtonCross(chars: englishDpadCrossChars(row: 0 + offset), pressed: false)
+                        .opacity(0.5)
+                } else {
+                    Text(dpad.center)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.quaternary)
+                        .frame(width: 52, height: 52)
+                        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                }
+                if isEnglish {
+                    dpadButtonCross(chars: englishDpadCrossChars(row: 3 + offset), pressed: gamepadInput.pressedButtons.contains("dpadRight"))
+                } else {
+                    dpadButton(label: dpad.right, pressed: gamepadInput.pressedButtons.contains("dpadRight"))
+                }
             }
             GridRow {
                 Color.clear.frame(width: 52, height: 52)
-                dpadButton(label: dpad.down, pressed: gamepadInput.pressedButtons.contains("dpadDown"))
+                if isEnglish {
+                    dpadButtonCross(chars: englishDpadCrossChars(row: 4 + offset), pressed: gamepadInput.pressedButtons.contains("dpadDown"))
+                } else {
+                    dpadButton(label: dpad.down, pressed: gamepadInput.pressedButtons.contains("dpadDown"))
+                }
                 Color.clear.frame(width: 52, height: 52)
             }
         }
@@ -291,6 +323,29 @@ struct GamepadVisualizerView: View {
             .background(pressed ? Color.accentColor : Color(.systemBackground), in: Circle())
             .foregroundStyle(pressed ? .white : .primary)
             .shadow(color: .black.opacity(0.05), radius: 1, y: 1)
+    }
+
+    /// 英語モード: フェイスボタン位置に文字を十字配置した D-pad ボタン
+    private func dpadButtonCross(chars: (left: String, up: String, right: String, down: String), pressed: Bool) -> some View {
+        ZStack {
+            if !chars.up.isEmpty {
+                Text(chars.up).offset(y: -13)
+            }
+            if !chars.left.isEmpty {
+                Text(chars.left).offset(x: -13)
+            }
+            if !chars.right.isEmpty {
+                Text(chars.right).offset(x: 13)
+            }
+            if !chars.down.isEmpty {
+                Text(chars.down).offset(y: 13)
+            }
+        }
+        .font(.system(size: 13, weight: .bold))
+        .frame(width: 52, height: 52)
+        .background(pressed ? Color.accentColor : Color(.systemBackground).opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
+        .foregroundStyle(pressed ? .white : .secondary)
+        .shadow(color: .black.opacity(0.05), radius: 1, y: 1)
     }
 
     private func dpadButton(label: String, pressed: Bool) -> some View {
