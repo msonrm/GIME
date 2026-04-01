@@ -81,6 +81,10 @@ final class GamepadInputManager {
     /// - Parameter offset: 移動量（負=左、正=右）
     var onCursorMove: ((_ offset: Int) -> Void)?
 
+    /// カーソル上下移動コールバック（左スティック上下）
+    /// - Parameter direction: 負=上、正=下
+    var onCursorMoveVertical: ((_ direction: Int) -> Void)?
+
     /// 削除コールバック（idle 時の右スティック←）
     var onDeleteBackward: (() -> Void)?
 
@@ -353,12 +357,17 @@ final class GamepadInputManager {
         else { leftStickDirection = .neutral }
 
         if currentMode == .english || currentMode == .korean {
-            // 英語/韓国語: 常にカーソル移動
+            // 英語/韓国語: 常にカーソル移動（上下左右）
             if lStickRight && !prevLStickRight { onCursorMove?(1) }
             if lStickLeft && !prevLStickLeft { onCursorMove?(-1) }
+            if lStickUp && !prevLStickUp { onCursorMoveVertical?(-1) }
+            if lStickDown && !prevLStickDown { onCursorMoveVertical?(1) }
         } else if inputManager.isEmpty {
+            // 日本語 idle: 上下左右カーソル移動
             if lStickRight && !prevLStickRight { executeAction(.cursorRight) }
             if lStickLeft && !prevLStickLeft { executeAction(.cursorLeft) }
+            if lStickUp && !prevLStickUp { onCursorMoveVertical?(-1) }
+            if lStickDown && !prevLStickDown { onCursorMoveVertical?(1) }
         } else {
             if lStickDown && !prevLStickDown { executeAction(.convert) }
             if lStickUp && !prevLStickUp { executeAction(.prevCandidate) }
@@ -831,6 +840,19 @@ final class GamepadInputManager {
         if gp.buttonY { buttons.insert("Y") }
         if gp.start { buttons.insert("Start") }
         if gp.back { buttons.insert("Back") }
+        // 右スティック方向（ビジュアライザ用）
+        let rsX = gp.rightStickX
+        let rsY = gp.rightStickY
+        let rAbsX = abs(rsX)
+        let rAbsY = abs(rsY)
+        let rMax = max(rAbsX, rAbsY)
+        if rMax > stickThreshold {
+            if rAbsX > rAbsY {
+                buttons.insert(rsX > 0 ? "rStickRight" : "rStickLeft")
+            } else {
+                buttons.insert(rsY > 0 ? "rStickUp" : "rStickDown")
+            }
+        }
         pressedButtons = buttons
     }
 }

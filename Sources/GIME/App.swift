@@ -80,6 +80,38 @@ struct ContentView: View {
                 cursorLocation = newLoc
                 selectionLength = 0
             }
+            gp.onCursorMoveVertical = { direction in
+                let ns = text as NSString
+                let textLen = ns.length
+                guard textLen > 0 else { return }
+                let loc = min(cursorLocation, textLen)
+                if direction < 0 {
+                    // 上: 現在行の行頭を探し、その1つ前（前行末）へ
+                    let lineRange = ns.lineRange(for: NSRange(location: loc, length: 0))
+                    if lineRange.location > 0 {
+                        // 前行の同じ列位置を計算
+                        let colInCurrentLine = loc - lineRange.location
+                        let prevLineRange = ns.lineRange(for: NSRange(location: lineRange.location - 1, length: 0))
+                        let prevLineLen = prevLineRange.length - (ns.substring(with: prevLineRange).hasSuffix("\n") ? 1 : 0)
+                        cursorLocation = prevLineRange.location + min(colInCurrentLine, prevLineLen)
+                    } else {
+                        cursorLocation = 0
+                    }
+                } else {
+                    // 下: 現在行の行末の次（次行頭）へ
+                    let lineRange = ns.lineRange(for: NSRange(location: loc, length: 0))
+                    let nextLineStart = lineRange.location + lineRange.length
+                    if nextLineStart <= textLen {
+                        let colInCurrentLine = loc - lineRange.location
+                        let nextLineRange = ns.lineRange(for: NSRange(location: nextLineStart, length: 0))
+                        let nextLineLen = nextLineRange.length - (ns.substring(with: nextLineRange).hasSuffix("\n") ? 1 : 0)
+                        cursorLocation = nextLineRange.location + min(colInCurrentLine, nextLineLen)
+                    } else {
+                        cursorLocation = textLen
+                    }
+                }
+                selectionLength = 0
+            }
             gp.onDeleteBackward = {
                 guard cursorLocation > 0 else { return }
                 let ns = text as NSString

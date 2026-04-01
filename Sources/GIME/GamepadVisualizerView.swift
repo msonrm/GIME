@@ -93,6 +93,34 @@ struct GamepadVisualizerView: View {
         }
     }
 
+    // MARK: - 右スティックラベル
+
+    private var rStickUpLabel: String {
+        switch mode {
+        case .japanese: return "濁点"
+        case .english: return "'"
+        case .korean: return "ㅋㅌ"
+        }
+    }
+
+    private var rStickDownLabel: String {
+        switch mode {
+        case .japanese: return "、。"
+        case .english: return ","
+        case .korean: return "␣,."
+        }
+    }
+
+    private var rStickLeftLabel: String { "⌫" }
+
+    private var rStickRightLabel: String {
+        switch mode {
+        case .japanese: return "ー"
+        case .english: return "␣/."
+        case .korean: return "ㅘㅝ"
+        }
+    }
+
     var body: some View {
         VStack(spacing: 12) {
             // モードバッジ（ビジュアライザ最上部）
@@ -149,6 +177,8 @@ struct GamepadVisualizerView: View {
                     }
                     faceButtonGrid
                 }
+                // 右スティック（コンパクト十字型）
+                rightStickGrid
             }
             .padding()
             .background(.background, in: RoundedRectangle(cornerRadius: 16))
@@ -158,43 +188,6 @@ struct GamepadVisualizerView: View {
                 Text(name)
                     .font(.caption2)
                     .foregroundStyle(.quaternary)
-            }
-
-            // 操作ガイド（モード別）
-            switch mode {
-            case .japanese:
-                HStack(spacing: 12) {
-                    guideLabel("L🕹↓ 変換")
-                    guideLabel("L🕹←→ 文節")
-                    guideLabel("R🕹← 削除")
-                    guideLabel("R🕹↑ 濁点")
-                    guideLabel("R🕹→ ー")
-                    guideLabel("R🕹↓ 、。")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            case .english:
-                HStack(spacing: 12) {
-                    guideLabel("LT Shift")
-                    guideLabel("RT 0")
-                    guideLabel("R🕹← Del")
-                    guideLabel("R🕹↑ '")
-                    guideLabel("R🕹→ SPC/.")
-                    guideLabel("R🕹↓ ,")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            case .korean:
-                HStack(spacing: 12) {
-                    guideLabel("LT ㅇ받침")
-                    guideLabel("RT ㅑㅕ/ㅐㅔ")
-                    guideLabel("R🕹← 삭제")
-                    guideLabel("R🕹↑ ㅋㅌ")
-                    guideLabel("R🕹→ ㅘㅝ")
-                    guideLabel("R🕹↓ ␣,.")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
             }
         }
     }
@@ -250,6 +243,31 @@ struct GamepadVisualizerView: View {
         }
     }
 
+    // MARK: - 右スティックグリッド
+
+    private var rightStickGrid: some View {
+        Grid(horizontalSpacing: 2, verticalSpacing: 2) {
+            GridRow {
+                Color.clear.frame(width: 40, height: 32)
+                stickButton(label: rStickUpLabel, pressed: gamepadInput.pressedButtons.contains("rStickUp"))
+                Color.clear.frame(width: 40, height: 32)
+            }
+            GridRow {
+                stickButton(label: rStickLeftLabel, pressed: gamepadInput.pressedButtons.contains("rStickLeft"))
+                Text("R🕹")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.quaternary)
+                    .frame(width: 40, height: 32)
+                stickButton(label: rStickRightLabel, pressed: gamepadInput.pressedButtons.contains("rStickRight"))
+            }
+            GridRow {
+                Color.clear.frame(width: 40, height: 32)
+                stickButton(label: rStickDownLabel, pressed: gamepadInput.pressedButtons.contains("rStickDown"))
+                Color.clear.frame(width: 40, height: 32)
+            }
+        }
+    }
+
     // MARK: - ボタンコンポーネント
 
     private func shoulderButton(char: String, name: String, pressed: Bool) -> some View {
@@ -284,7 +302,11 @@ struct GamepadVisualizerView: View {
             .shadow(color: .black.opacity(0.05), radius: 1, y: 1)
     }
 
-    private func guideLabel(_ text: String) -> some View {
-        Text(text)
+    private func stickButton(label: String, pressed: Bool) -> some View {
+        Text(label)
+            .font(.system(size: 11, weight: .semibold))
+            .frame(width: 40, height: 32)
+            .background(pressed ? Color.accentColor : Color(.systemBackground).opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+            .foregroundStyle(pressed ? .white : .secondary)
     }
 }
