@@ -121,6 +121,17 @@ struct ContentView: View {
                 cursorLocation = range.location
                 selectionLength = 0
             }
+            gp.onBackLongPress = {
+                // composing 中なら確定してからテキスト全文を共有
+                if !inputManager.isEmpty {
+                    _ = inputManager.confirmAll()
+                }
+                let intent = SendTextIntent()
+                intent.text = text
+                Task {
+                    try? await intent.perform()
+                }
+            }
             gp.onDirectInsert = { insertText, replaceCount in
                 let ns = text as NSString
                 if replaceCount > 0 {

@@ -94,6 +94,9 @@ final class GamepadInputManager {
     ///   - replaceCount: 置換する直前の文字数（0 = 追加）
     var onDirectInsert: ((_ text: String, _ replaceCount: Int) -> Void)?
 
+    /// Back 長押しコールバック（テキスト全文を共有）
+    var onBackLongPress: (() -> Void)?
+
     // MARK: - Dependencies
 
     let inputManager: InputManager
@@ -133,6 +136,8 @@ final class GamepadInputManager {
     private var prevLStickRight = false
 
     private var prevBack = false
+    private var backPressTime: TimeInterval = 0
+    private(set) var backLongPressFired = false
     private var prevLS = false
     private var prevRS = false
     private var prevStart = false
@@ -380,11 +385,20 @@ final class GamepadInputManager {
         prevLStickLeft = lStickLeft
         prevLStickRight = lStickRight
 
-        // === Back=スペース, LS=確定/改行, RS=キャンセル ===
-        if currentMode == .japanese {
-            if prevBack && !gp.back { executeAction(.space) }
-        } else {
-            if prevBack && !gp.back {
+        // === Back=スペース（短押し）/ 共有（長押し）, LS=確定/改行, RS=キャンセル ===
+        if gp.back && !prevBack {
+            // 押下開始
+            backPressTime = now
+            backLongPressFired = false
+        } else if gp.back && !backLongPressFired && (now - backPressTime) >= longPressThreshold {
+            // 長押し発火（1回だけ）
+            backLongPressFired = true
+            onBackLongPress?()
+        } else if prevBack && !gp.back && !backLongPressFired {
+            // 短押しリリース → スペース
+            if currentMode == .japanese {
+                executeAction(.space)
+            } else {
                 if currentMode == .korean { koreanComposer.commit() }
                 onDirectInsert?(" ", 0)
             }
