@@ -732,8 +732,7 @@ final class GamepadInputManager {
                 onDirectInsert?("\n", 0)
             }
         case .longVowel:
-            if !inputManager.isEmpty { _ = inputManager.confirmAll() }
-            onDirectInsert?("ー", 0)
+            inputManager.appendDirectKana("ー")
         case .punctuation(let isSecond):
             if isSecond {
                 onDirectInsert?("。", 1)
