@@ -7,9 +7,9 @@ import UIKit
 /// デフォルト動作: 共有シート表示（SNS 投稿画面等）。
 /// ショートカットアプリでカスタムルーチンを組むことも可能。
 struct SendTextIntent: AppIntent {
-    static var title: LocalizedStringResource = "テキストを共有"
-    static var description: IntentDescription = "エディタのテキスト全文を共有します"
-    static var openAppWhenRun: Bool = true
+    static let title: LocalizedStringResource = "テキストを共有"
+    static let description: IntentDescription = "エディタのテキスト全文を共有します"
+    static let openAppWhenRun: Bool = true
 
     @Parameter(title: "テキスト")
     var text: String
