@@ -695,6 +695,10 @@ final class GamepadInputManager {
     private func executeAction(_ action: GamepadAction) {
         switch action {
         case .kana(let char, let replaceCount):
+            // selecting/previewing 中に新しい文字を打ったら、現在の候補を確定してから入力
+            if replaceCount == 0 && (inputManager.state == .selecting || inputManager.state == .previewing) {
+                _ = inputManager.confirmAll()
+            }
             if replaceCount > 0 {
                 inputManager.replaceDirectKana(count: replaceCount, with: char)
             } else {
@@ -713,7 +717,8 @@ final class GamepadInputManager {
                 _ = inputManager.deleteBackward()
             }
         case .space:
-            inputManager.appendDirectKana(" ")
+            if !inputManager.isEmpty { _ = inputManager.confirmAll() }
+            onDirectInsert?(" ", 0)
         case .cancel:
             _ = inputManager.cancelConversion()
         case .confirmOrNewline:
@@ -727,12 +732,14 @@ final class GamepadInputManager {
                 onDirectInsert?("\n", 0)
             }
         case .longVowel:
-            inputManager.appendDirectKana("ー")
+            if !inputManager.isEmpty { _ = inputManager.confirmAll() }
+            onDirectInsert?("ー", 0)
         case .punctuation(let isSecond):
             if isSecond {
-                inputManager.replaceDirectKana(count: 1, with: "。")
+                onDirectInsert?("。", 1)
             } else {
-                inputManager.appendDirectKana("、")
+                if !inputManager.isEmpty { _ = inputManager.confirmAll() }
+                onDirectInsert?("、", 0)
             }
         case .convert:
             if inputManager.state == .composing {

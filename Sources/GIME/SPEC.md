@@ -297,3 +297,4 @@ syllable = 0xAC00 + (onset * 21 + nucleus) * 28 + coda
 - **App Intents 連携**: 全文を他アプリに送信するショートカット
 - **記号パレット**: Select ボタンから呼び出す記号・絵文字選択 UI
 - **設定画面**: モードサイクルのカスタマイズ、chord ウィンドウ調整等
+- **中国語モード（ピンイン）**: CJK 3言語対応。声母を D-pad + LB の10位置にグルーピング（調音点ベース: b/p, d/t, g/k/h, j/q/x, zh/ch/sh, z/c/s 等）し、韓国語の子音サイクルと同パターンで右スティック↑で切替。韻母は基本5母音（フェイスボタン）+ RT シフト + 右スティック後置（-n/-ng）。声調は省略可（IME 側で曖昧マッチ）。変換エンジンは librime（[LibrimeKit](https://github.com/imfuxiao/Hamster) で iOS 向けビルド済み）を想定
