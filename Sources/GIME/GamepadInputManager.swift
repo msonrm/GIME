@@ -68,6 +68,9 @@ final class GamepadInputManager {
     private(set) var leftStickDirection: StickDirection = .neutral
     private(set) var currentMode: GamepadInputMode = .japanese
 
+    /// Start ボタンでサイクルする言語の有効/無効設定
+    var enabledModes: Set<GamepadInputMode> = Set(GamepadInputMode.allCases)
+
     enum ActiveLayer { case base, lb }
 
     enum StickDirection {
@@ -410,7 +413,7 @@ final class GamepadInputManager {
             if !inputManager.isEmpty {
                 _ = inputManager.confirmAll()
             }
-            currentMode = currentMode.next()
+            currentMode = currentMode.next(enabledModes: enabledModes)
             eagerChar = nil
             englishShiftNext = false
             englishCapsLock = false

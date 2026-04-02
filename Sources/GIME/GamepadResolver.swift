@@ -22,13 +22,17 @@ enum GamepadInputMode: CaseIterable {
         }
     }
 
-    /// サイクル順: 日本語 → 韓国語 → 英語 → 日本語
-    func next() -> GamepadInputMode {
-        switch self {
-        case .japanese: return .korean
-        case .korean: return .english
-        case .english: return .japanese
+    /// サイクル順: 日本語 → 韓国語 → 英語 → 日本語（有効なモードのみ）
+    func next(enabledModes: Set<GamepadInputMode> = Set(GamepadInputMode.allCases)) -> GamepadInputMode {
+        let order: [GamepadInputMode] = [.japanese, .korean, .english]
+        guard let currentIndex = order.firstIndex(of: self) else { return self }
+        for offset in 1...order.count {
+            let candidate = order[(currentIndex + offset) % order.count]
+            if enabledModes.contains(candidate) {
+                return candidate
+            }
         }
+        return self
     }
 }
 

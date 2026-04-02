@@ -66,14 +66,13 @@ struct ContentView: View {
                     }
                 }
 
-                // Zenzai トグル + ゲームパッドビジュアライザ
+                // ゲームパッドビジュアライザ（画面下ぴったり）
                 if let gp = gamepadInput, gp.isConnected {
-                    VStack(spacing: 0) {
-                        zenzaiBar
-                        GamepadVisualizerView(gamepadInput: gp)
-                            .padding([.horizontal, .top])
-                            .padding(.bottom, 4)
-                    }
+                    GamepadVisualizerView(
+                        gamepadInput: gp,
+                        zenzaiManager: zenzaiManager
+                    )
+                    .padding([.horizontal, .top])
                     .background(.ultraThinMaterial)
                 }
             }
@@ -163,42 +162,6 @@ struct ContentView: View {
         .task {
             inputManager.zenzaiWeightURL = zenzaiManager.isEnabled ? zenzaiManager.modelURL : nil
         }
-    }
-
-    // MARK: - Zenzai バー
-
-    private var zenzaiBar: some View {
-        @Bindable var zm = zenzaiManager
-        return HStack(spacing: 8) {
-            Toggle(isOn: $zm.isEnabled) {
-                HStack(spacing: 4) {
-                    Image(systemName: "brain")
-                        .font(.caption2)
-                    Text("Zenzai")
-                        .font(.caption.bold())
-                }
-            }
-            .toggleStyle(.switch)
-            .controlSize(.mini)
-
-            switch zenzaiManager.state {
-            case .downloading(let progress):
-                ProgressView(value: progress)
-                    .frame(width: 60)
-                Text("\(Int(progress * 100))%")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            case .error:
-                Button("再試行") { zenzaiManager.startDownloadIfNeeded() }
-                    .font(.caption2)
-            default:
-                EmptyView()
-            }
-
-            Spacer()
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
     }
 
     /// 共有シートを表示する

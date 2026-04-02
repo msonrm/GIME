@@ -4,6 +4,9 @@ import SwiftUI
 /// Web 版 GamepadVisualizer.tsx の Swift 移植
 struct GamepadVisualizerView: View {
     let gamepadInput: GamepadInputManager
+    let zenzaiManager: ZenzaiModelManager
+
+    @State private var showSettings = false
 
     private var mode: GamepadInputMode { gamepadInput.currentMode }
 
@@ -122,15 +125,28 @@ struct GamepadVisualizerView: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
-            // モードバッジ（ビジュアライザ最上部）
-            Text(mode.label)
-                .font(.system(size: 14, weight: .semibold))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 4)
-                .background(modeBadgeColor)
-                .foregroundStyle(.white)
-                .clipShape(Capsule())
+        VStack(spacing: 8) {
+            // ヘッダー: 言語バッジ（左）+ 設定アイコン（右）
+            HStack {
+                Text(mode.label)
+                    .font(.system(size: 14, weight: .semibold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                    .background(modeBadgeColor)
+                    .foregroundStyle(.white)
+                    .clipShape(Capsule())
+
+                Spacer()
+
+                Button {
+                    showSettings = true
+                } label: {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 4)
 
             HStack(spacing: 24) {
                 VStack(spacing: 8) {
@@ -181,14 +197,12 @@ struct GamepadVisualizerView: View {
             }
             .padding()
             .background(.background, in: RoundedRectangle(cornerRadius: 16))
-
-            // ゲームパッド名
-            if let name = gamepadInput.gamepadName {
-                Text(name)
-                    .font(.caption2)
-                    .foregroundStyle(.quaternary)
-                    .padding(.bottom, 2)
-            }
+        }
+        .sheet(isPresented: $showSettings) {
+            GamepadSettingsSheet(
+                gamepadInput: gamepadInput,
+                zenzaiManager: zenzaiManager
+            )
         }
     }
 
@@ -302,6 +316,8 @@ struct GamepadVisualizerView: View {
 
     // MARK: - ボタンコンポーネント
 
+    private static let buttonShadow: Color = .black.opacity(0.15)
+
     private func shoulderButton(char: String, name: String, pressed: Bool) -> some View {
         VStack(spacing: 1) {
             Text(char)
@@ -311,18 +327,18 @@ struct GamepadVisualizerView: View {
                 .foregroundStyle(pressed ? .white.opacity(0.6) : .secondary)
         }
         .frame(minWidth: 52, minHeight: 44)
-        .background(pressed ? Color.accentColor : Color(.systemBackground), in: RoundedRectangle(cornerRadius: 8))
+        .background(pressed ? Color.accentColor : Color(.systemGray5), in: RoundedRectangle(cornerRadius: 8))
         .foregroundStyle(pressed ? .white : .primary)
-        .shadow(color: .black.opacity(0.05), radius: 1, y: 1)
+        .shadow(color: Self.buttonShadow, radius: 2, y: 1)
     }
 
     private func faceButton(label: String, pressed: Bool) -> some View {
         Text(label)
             .font(.system(size: 16, weight: .bold))
             .frame(width: 48, height: 48)
-            .background(pressed ? Color.accentColor : Color(.systemBackground), in: Circle())
+            .background(pressed ? Color.accentColor : Color(.systemGray5), in: Circle())
             .foregroundStyle(pressed ? .white : .primary)
-            .shadow(color: .black.opacity(0.05), radius: 1, y: 1)
+            .shadow(color: Self.buttonShadow, radius: 2, y: 1)
     }
 
     /// 英語モード: フェイスボタン位置に文字を十字配置した D-pad ボタン
@@ -343,25 +359,101 @@ struct GamepadVisualizerView: View {
         }
         .font(.system(size: 13, weight: .bold))
         .frame(width: 52, height: 52)
-        .background(pressed ? Color.accentColor : Color(.systemBackground).opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
+        .background(pressed ? Color.accentColor : Color(.systemGray5).opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
         .foregroundStyle(pressed ? .white : .secondary)
-        .shadow(color: .black.opacity(0.05), radius: 1, y: 1)
+        .shadow(color: Self.buttonShadow, radius: 2, y: 1)
     }
 
     private func dpadButton(label: String, pressed: Bool) -> some View {
         Text(label)
             .font(.system(size: 13, weight: .bold))
             .frame(width: 52, height: 52)
-            .background(pressed ? Color.accentColor : Color(.systemBackground).opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
+            .background(pressed ? Color.accentColor : Color(.systemGray5).opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
             .foregroundStyle(pressed ? .white : .secondary)
-            .shadow(color: .black.opacity(0.05), radius: 1, y: 1)
+            .shadow(color: Self.buttonShadow, radius: 2, y: 1)
     }
 
     private func stickButton(label: String, pressed: Bool) -> some View {
         Text(label)
             .font(.system(size: 11, weight: .semibold))
             .frame(width: 40, height: 32)
-            .background(pressed ? Color.accentColor : Color(.systemBackground).opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+            .background(pressed ? Color.accentColor : Color(.systemGray5).opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
             .foregroundStyle(pressed ? .white : .secondary)
+    }
+}
+
+// MARK: - 設定シート
+
+/// ビジュアライザ設定シート（Zenzai トグル + 言語サイクル設定）
+private struct GamepadSettingsSheet: View {
+    let gamepadInput: GamepadInputManager
+    let zenzaiManager: ZenzaiModelManager
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        @Bindable var zm = zenzaiManager
+        return NavigationStack {
+            Form {
+                // Zenzai セクション
+                Section("Zenzai") {
+                    Toggle(isOn: $zm.isEnabled) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "brain")
+                            Text("Zenzai（ニューラル変換）")
+                        }
+                    }
+                    switch zenzaiManager.state {
+                    case .downloading(let progress):
+                        HStack {
+                            ProgressView(value: progress)
+                            Text("\(Int(progress * 100))%")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    case .error:
+                        Button("再試行") { zenzaiManager.startDownloadIfNeeded() }
+                    default:
+                        EmptyView()
+                    }
+                }
+
+                // 言語サイクル設定セクション
+                Section {
+                    ForEach(GamepadInputMode.allCases, id: \.self) { mode in
+                        Toggle(isOn: Binding(
+                            get: { gamepadInput.enabledModes.contains(mode) },
+                            set: { enabled in
+                                if enabled {
+                                    gamepadInput.enabledModes.insert(mode)
+                                } else {
+                                    // 最低1つは残す
+                                    if gamepadInput.enabledModes.count > 1 {
+                                        gamepadInput.enabledModes.remove(mode)
+                                    }
+                                }
+                            }
+                        )) {
+                            Text(mode.label)
+                        }
+                        .disabled(
+                            gamepadInput.enabledModes.contains(mode) && gamepadInput.enabledModes.count <= 1
+                        )
+                    }
+                } header: {
+                    Text("Start ボタンの言語切替")
+                } footer: {
+                    Text("Start ボタンで切り替える言語を選択します。最低1つは有効にする必要があります。")
+                }
+            }
+            .navigationTitle("設定")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完了") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 }
