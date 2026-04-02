@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import KeyLogicKit
 
 @main
@@ -121,16 +122,13 @@ struct ContentView: View {
                 cursorLocation = range.location
                 selectionLength = 0
             }
-            gp.onBackLongPress = {
+            gp.onShareText = {
                 // composing 中なら確定してからテキスト全文を共有
                 if !inputManager.isEmpty {
                     _ = inputManager.confirmAll()
                 }
-                let intent = SendTextIntent()
-                intent.text = text
-                Task {
-                    try? await intent.perform()
-                }
+                guard !text.isEmpty else { return }
+                showShareSheet(text: text)
             }
             gp.onDirectInsert = { insertText, replaceCount in
                 let ns = text as NSString
@@ -148,5 +146,32 @@ struct ContentView: View {
             }
             gamepadInput = gp
         }
+    }
+
+    /// 共有シートを表示する
+    private func showShareSheet(text: String) {
+        guard let windowScene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first,
+              let rootVC = windowScene.windows.first?.rootViewController else { return }
+
+        let activityVC = UIActivityViewController(
+            activityItems: [text],
+            applicationActivities: nil
+        )
+        if let popover = activityVC.popoverPresentationController {
+            popover.sourceView = rootVC.view
+            popover.sourceRect = CGRect(
+                x: rootVC.view.bounds.midX,
+                y: rootVC.view.bounds.midY,
+                width: 0, height: 0
+            )
+            popover.permittedArrowDirections = []
+        }
+        var presenter = rootVC
+        while let presented = presenter.presentedViewController {
+            presenter = presented
+        }
+        presenter.present(activityVC, animated: true)
     }
 }

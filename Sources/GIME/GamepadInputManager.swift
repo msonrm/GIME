@@ -94,8 +94,8 @@ final class GamepadInputManager {
     ///   - replaceCount: 置換する直前の文字数（0 = 追加）
     var onDirectInsert: ((_ text: String, _ replaceCount: Int) -> Void)?
 
-    /// Back 長押しコールバック（テキスト全文を共有）
-    var onBackLongPress: (() -> Void)?
+    /// Start+Back 同時押しコールバック（テキスト全文を共有）
+    var onShareText: (() -> Void)?
 
     // MARK: - Dependencies
 
@@ -136,8 +136,7 @@ final class GamepadInputManager {
     private var prevLStickRight = false
 
     private var prevBack = false
-    private var backPressTime: TimeInterval = 0
-    private(set) var backLongPressFired = false
+    private var startBackComboFired = false
     private var prevLS = false
     private var prevRS = false
     private var prevStart = false
@@ -385,20 +384,11 @@ final class GamepadInputManager {
         prevLStickLeft = lStickLeft
         prevLStickRight = lStickRight
 
-        // === Back=スペース（短押し）/ 共有（長押し）, LS=確定/改行, RS=キャンセル ===
-        if gp.back && !prevBack {
-            // 押下開始
-            backPressTime = now
-            backLongPressFired = false
-        } else if gp.back && !backLongPressFired && (now - backPressTime) >= longPressThreshold {
-            // 長押し発火（1回だけ）
-            backLongPressFired = true
-            onBackLongPress?()
-        } else if prevBack && !gp.back && !backLongPressFired {
-            // 短押しリリース → スペース
-            if currentMode == .japanese {
-                executeAction(.space)
-            } else {
+        // === Back=スペース, LS=確定/改行, RS=キャンセル ===
+        if currentMode == .japanese {
+            if prevBack && !gp.back { executeAction(.space) }
+        } else {
+            if prevBack && !gp.back {
                 if currentMode == .korean { koreanComposer.commit() }
                 onDirectInsert?(" ", 0)
             }
@@ -406,8 +396,17 @@ final class GamepadInputManager {
         if prevLS && !gp.lsClick { executeAction(.confirmOrNewline) }
         if prevRS && !gp.rsClick { executeAction(.cancel) }
 
-        // === Start=モード切替 ===
-        if prevStart && !gp.start {
+        // === Start+Back 同時押し=テキスト共有, Start 単体=モード切替 ===
+        let startBackCombo = gp.start && gp.back
+        if startBackCombo && !startBackComboFired {
+            startBackComboFired = true
+            onShareText?()
+        }
+        if !gp.start && !gp.back {
+            startBackComboFired = false
+        }
+
+        if prevStart && !gp.start && !startBackComboFired {
             if !inputManager.isEmpty {
                 _ = inputManager.confirmAll()
             }
