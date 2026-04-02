@@ -3,17 +3,19 @@ import AppIntents
 /// GIME のエディタテキストを取得する App Intent
 ///
 /// ショートカットアプリに自動公開される。
-/// テキストを結果として返すので、後続アクション（翻訳、SNS 投稿等）にチェーンできる。
+/// GIME の現在のエディタテキストを取得し、結果として返す。
+/// 後続アクション（翻訳、SNS 投稿等）にチェーンできる。
 struct SendTextIntent: AppIntent {
     static let title: LocalizedStringResource = "テキストを取得"
     static let description: IntentDescription = "GIME エディタのテキスト全文を取得します"
     static let openAppWhenRun: Bool = true
 
-    @Parameter(title: "テキスト")
-    var text: String
+    /// UserDefaults のキー（App.swift と共有）
+    static let editorTextKey = "gime_editor_text"
 
     func perform() async throws -> some IntentResult & ReturnsValue<String> {
-        .result(value: text)
+        let text = UserDefaults.standard.string(forKey: Self.editorTextKey) ?? ""
+        return .result(value: text)
     }
 }
 

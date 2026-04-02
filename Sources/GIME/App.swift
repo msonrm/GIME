@@ -146,6 +146,9 @@ struct ContentView: View {
             }
             gamepadInput = gp
         }
+        .onChange(of: text) { _, newValue in
+            UserDefaults.standard.set(newValue, forKey: SendTextIntent.editorTextKey)
+        }
     }
 
     /// 共有シートを表示する
