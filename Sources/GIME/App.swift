@@ -15,6 +15,7 @@ struct ContentView: View {
     @State private var inputManager = InputManager()
     @State private var gamepadInput: GamepadInputManager?
     @State private var zenzaiManager = ZenzaiModelManager()
+    @State private var pinyinEngine = PinyinEngine()
 
     // ゲームパッド専用アプリだが、キーボード入力も受け付ける（フォールバック）
     private var keyRouter: KeyRouter {
@@ -50,7 +51,7 @@ struct ContentView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .overlay(alignment: .topLeading) {
-                    // 変換候補ポップアップ
+                    // 変換候補ポップアップ（日本語）
                     if inputManager.state == .selecting {
                         CandidatePopup(
                             additionalCandidates: inputManager.visibleAdditionalCandidates,
@@ -58,6 +59,24 @@ struct ContentView: View {
                             selectedAdditionalCandidateIndex: inputManager.selectedAdditionalCandidateIndex,
                             candidates: inputManager.visibleCandidateTexts,
                             selectedIndex: inputManager.selectedIndexInWindow,
+                            font: .system(size: 28),
+                            fontSize: 28,
+                            anchor: caretRect,
+                            bounds: geo.size
+                        )
+                    }
+                    // 中国語ピンイン候補ポップアップ
+                    else if let gp = gamepadInput,
+                            gp.currentMode == .chineseSimplified,
+                            !gp.pinyinCandidates.isEmpty {
+                        CandidatePopup(
+                            additionalCandidates: [],
+                            isAdditionalCandidateSelected: false,
+                            selectedAdditionalCandidateIndex: 0,
+                            candidates: gp.pinyinCandidates.map {
+                                "\(pinyinEngine.displayText(for: $0))  \($0.p)"
+                            },
+                            selectedIndex: gp.pinyinSelectedIndex,
                             font: .system(size: 28),
                             fontSize: 28,
                             anchor: caretRect,
@@ -148,6 +167,8 @@ struct ContentView: View {
                 }
                 selectionLength = 0
             }
+            pinyinEngine.load()
+            gp.pinyinEngine = pinyinEngine
             gamepadInput = gp
         }
         .onChange(of: text) { _, newValue in

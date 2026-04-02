@@ -13,18 +13,20 @@ enum GamepadInputMode: CaseIterable {
     case japanese
     case english
     case korean
+    case chineseSimplified
 
     var label: String {
         switch self {
         case .japanese: return "日本語"
         case .english: return "EN"
         case .korean: return "한국어"
+        case .chineseSimplified: return "简体"
         }
     }
 
-    /// サイクル順: 日本語 → 韓国語 → 英語 → 日本語（有効なモードのみ）
+    /// サイクル順: 日本語 → 韓国語 → 英語 → 简体中文 → 日本語（有効なモードのみ）
     func next(enabledModes: Set<GamepadInputMode> = Set(GamepadInputMode.allCases)) -> GamepadInputMode {
-        let order: [GamepadInputMode] = [.japanese, .korean, .english]
+        let order: [GamepadInputMode] = [.japanese, .korean, .english, .chineseSimplified]
         guard let currentIndex = order.firstIndex(of: self) else { return self }
         for offset in 1...order.count {
             let candidate = order[(currentIndex + offset) % order.count]
@@ -248,3 +250,10 @@ let englishRowNames = ["(?)", "abc", "def", "ghi", "jkl", "mno", "pqrs", "tuv", 
 /// 英語 D-pad ラベル
 let englishDpadLabelsBase = DpadLabels(center: "(?)", left: "abc", up: "def", right: "ghi", down: "jkl")
 let englishDpadLabelsLB = DpadLabels(center: "mno", left: "pqrs", up: "tuv", right: "wxyz", down: "@#-")
+
+// MARK: - 中国語（简体）テーブル
+
+/// 中国語は英語テーブルを再利用（abbreviated pinyin = アルファベット入力）
+let chineseDpadLabelsBase = englishDpadLabelsBase
+let chineseDpadLabelsLB = englishDpadLabelsLB
+let chineseRowNames = englishRowNames
