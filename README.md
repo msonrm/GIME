@@ -1,12 +1,12 @@
 # GIME — Gamepad IME
 
-iPad + ゲームパッドで日本語・英語・韓国語を入力できる実験的アプリ。
+iPad + ゲームパッドで日本語・英語・韓国語・中国語簡体字を入力できる実験的アプリ。
 
 [KeyLogicKit](https://github.com/msonrm/KeyLogicKit) の IME エンジンを利用し、GCController でゲームパッド入力を受け取り、かな漢字変換を実現する。
 
 ## 特徴
 
-- **3言語対応**: 日本語（かな漢字変換）・英語（T9 ベース）・韓国語（2ボル式ハングル合成）
+- **4言語対応**: 日本語（かな漢字変換）・英語（T9 ベース）・韓国語（2ボル式ハングル合成）・中国語簡体字（abbreviated pinyin）
 - **フリック風ゲームパッド入力**: 左手（D-pad + LB）で子音行、右手（フェイスボタン + RB）で母音を同時押しで入力
 - **かな漢字変換**: KeyLogicKit の InputManager による辞書ベース変換
 - **ビジュアライザ**: モード別の動的レイヤー切替表示
@@ -29,7 +29,7 @@ open GIME
 
 ## 入力モード
 
-Start ボタンでモードをサイクルする（日本語 → 韓国語 → 英語 → 日本語）。
+Start ボタンでモードをサイクルする（日本語 → 韓国語 → 英語 → 中国語簡体 → 日本語）。
 
 ### 日本語モード
 
@@ -53,15 +53,20 @@ T9 ベース。D-pad + LB で行選択、フェイスボタン + RB で列選択
 
 2ボル式ベース。子音（D-pad + LB）と母音（フェイスボタン）の同時押しで音節入力。받침は子音単独入力で追加。RT シフトで y系母音。
 
+### 中国語簡体モード
+
+Abbreviated pinyin（简拼）。英語 T9 テーブルでピンインの頭文字を入力し、候補リストから選択。例: `nh` → 你好、`zd` → 知道。
+
 ## アーキテクチャ
 
 ```
 GCController
   → GamepadSnapshot（Sendable な値型）
   → GamepadInputManager（モード別処理）
-  → 日本語: GamepadResolver → InputManager（かな漢字変換）
-    英語:   T9 テーブル → 直接テキスト挿入
-    韓国語: KoreanComposer → 直接テキスト挿入
+  → 日本語:     GamepadResolver → InputManager（かな漢字変換）
+    英語:       T9 テーブル → 直接テキスト挿入
+    韓国語:     KoreanComposer → 直接テキスト挿入
+    中国語簡体: T9 テーブル → PinyinEngine → 候補選択 → 直接テキスト挿入
 ```
 
 ## ファイル構成
@@ -70,8 +75,9 @@ GCController
 |----------|------|
 | `App.swift` | @main、IMETextView + GamepadVisualizer の配置 |
 | `GamepadResolver.swift` | かな/英語/韓国語テーブル、アクション enum |
-| `GamepadInputManager.swift` | GCController → 入力パイプライン |
+| `GamepadInputManager.swift` | GCController → 入力パイプライン（4モード） |
 | `KoreanComposer.swift` | ハングル音節合成エンジン（2ボル式） |
+| `PinyinEngine.swift` | Abbreviated pinyin 辞書検索エンジン |
 | `GamepadVisualizerView.swift` | SwiftUI ビジュアライザ |
 
 詳細仕様は [SPEC.md](Sources/GIME/SPEC.md) を参照。

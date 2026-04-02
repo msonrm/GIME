@@ -2,7 +2,7 @@
 
 ## 概要
 
-GIME (Gamepad IME) は、iPad + ゲームパッドで日本語・英語・韓国語を入力できる実験的アプリである。
+GIME (Gamepad IME) は、iPad + ゲームパッドで日本語・英語・韓国語・中国語簡体字を入力できる実験的アプリである。
 
 - KeyLogicKit の IME エンジン（InputManager, IMETextView）を利用し、かな漢字変換を実現
 - GCController でゲームパッド入力を受け取り、KeyRouter をバイパスして InputManager に直接かなを注入する
@@ -18,9 +18,10 @@ GCController
   → GamepadSnapshot（Sendable な値型）
   → GamepadInputManager.handleSnapshot()（@MainActor）
   → モード別処理:
-      日本語: GamepadResolver → InputManager.appendDirectKana / replaceDirectKana
-      英語:   englishTable → onDirectInsert（IME バイパス）
-      韓国語: KoreanComposer → onDirectInsert（IME バイパス）
+      日本語:     GamepadResolver → InputManager.appendDirectKana / replaceDirectKana
+      英語:       englishTable → onDirectInsert（IME バイパス）
+      韓国語:     KoreanComposer → onDirectInsert（IME バイパス）
+      中国語簡体: englishTable → PinyinEngine.lookup → CandidatePopup → onDirectInsert
 ```
 
 ### UI 構成
@@ -38,6 +39,7 @@ GIMEApp (@main)
 - `InputManager`（KeyLogicKit、@Observable）: 変換状態の唯一の管理元
 - `GamepadInputManager`（@Observable）: ゲームパッド接続状態、入力モード、ビジュアライザ用の UI 状態
 - `KoreanComposer`（struct、値型）: ハングル音節合成状態（GamepadInputManager が所有）
+- `PinyinEngine`（@Observable）: abbreviated pinyin 辞書ロード・検索（App.swift が所有、GamepadInputManager に注入）
 - コールバック（`onCursorMove`, `onDeleteBackward`, `onDirectInsert`）で ContentView 側のテキスト操作を実行
 
 ## ファイル構成
@@ -46,16 +48,17 @@ GIMEApp (@main)
 |----------|------|
 | `App.swift` | @main エントリポイント。ContentView で IMETextViewRepresentable + GamepadVisualizerView を配置。GamepadInputManager の初期化とコールバック接続を行う |
 | `GamepadResolver.swift` | かなテーブル（10行x5段）、拗音/濁点/半濁点マップ、英語 T9 テーブル、韓国語子音テーブル、GamepadAction enum、子音行・母音解決関数。Web 版 `gamepad-kana-table.ts` の Swift 移植 |
-| `GamepadInputManager.swift` | GCController 接続監視、GamepadSnapshot によるボタン状態取得、モード別入力処理（日本語/英語/韓国語）、アクション実行。入力パイプラインの中核 |
+| `GamepadInputManager.swift` | GCController 接続監視、GamepadSnapshot によるボタン状態取得、モード別入力処理（日本語/英語/韓国語/中国語）、アクション実行。入力パイプラインの中核 |
 | `KoreanComposer.swift` | ハングル音節合成エンジン（2ボル式ベース）。Unicode Hangul Syllables ブロックの合成式で文字を生成。子音/母音テーブル、サイクルマップ、複合母音マップを定義 |
+| `PinyinEngine.swift` | Abbreviated pinyin 検索エンジン。CC-CEDICT + OpenSubtitles 頻度リストから生成した辞書 JSON をロードし、ピンイン頭文字で候補を検索。簡体/繁体の variant 切替に対応 |
 | `GamepadVisualizerView.swift` | SwiftUI ビジュアライザ。モード別の D-pad/フェイスボタンラベル表示、プレビュー文字、操作ガイド。Web 版 `GamepadVisualizer.tsx` の Swift 移植 |
 
 ## 入力モード
 
-3つのモードを Start ボタンでサイクルする。初期モードは日本語。
+4つのモードを Start ボタンでサイクルする。初期モードは日本語。
 
 ```
-日本語 → 韓国語 → 英語 → 日本語
+日本語 → 韓国語 → 英語 → 中国語簡体 → 日本語
 ```
 
 モード切替時に以下をリセットする:
@@ -63,6 +66,7 @@ GIMEApp (@main)
 - eager output バッファをクリア
 - 英語シフト状態（Shift / SmartCaps / CapsLock）をクリア
 - 韓国語合成状態を確定（commit）
+- 中国語ピンインバッファ・候補をクリア
 
 ## 日本語モード
 
@@ -239,6 +243,63 @@ syllable = 0xAC00 + (onset * 21 + nucleus) * 28 + coda
 | 右スティック →（ㅏ/ㅓ付加） | ㅗ→ㅘ, ㅚ→ㅙ, ㅜ→ㅝ, ㅟ→ㅞ |
 | 右スティック ↓ | スペース→カンマ→ピリオド（トグル、400ms 以内の連打で差し替え） |
 
+## 中国語簡体モード（简拼 = Abbreviated Pinyin）
+
+英語 T9 テーブルを再利用してアルファベットを入力し、abbreviated pinyin（ピンインの頭文字）で候補を検索する。IME をバイパスし `onDirectInsert` で直接テキスト挿入する。
+
+### Abbreviated Pinyin の概念
+
+単語を構成する各漢字のピンイン頭文字（声母）だけを打って候補から選ぶ入力方式。
+
+| 入力 | 候補例 | ピンイン |
+|------|--------|---------|
+| `nh` | 你好 | nǐ hǎo |
+| `zd` | 知道 | zhī dào |
+| `yg` | 一个 | yī gè |
+| `xh` | 喜欢 | xǐ huān |
+| `aq` | 安全、爱情 | ān quán, ài qíng |
+
+声母抽出ルール:
+- 2文字声母（zh, ch, sh）は1文字目のみ使用（z, c, s）
+- y, w は声母として扱う
+- 零声母（母音始まり）は最初の母音文字を使用（爱→a, 二→e）
+
+### 文字入力
+
+英語モードと同じ T9 テーブルで小文字アルファベットを入力する。入力した文字はピンインバッファに追加され、バッファ全体で `PinyinEngine.lookup()` を呼び出して候補を更新する。
+
+### 候補操作
+
+| 操作 | アクション |
+|------|-----------|
+| 左スティック ↓ | 次の候補を選択 |
+| 左スティック ↑ | 前の候補を選択 |
+| LS 押込み | 選択中の候補を確定・挿入 |
+| RS 押込み | ピンインバッファ・候補をクリア（キャンセル） |
+| 右スティック ← | バッファ末尾1文字削除（空ならバックスペース） |
+| 右スティック → | スペース（バッファがあれば先頭候補を暗黙確定してから挿入） |
+| 右スティック ↓ | 句読点（「，」、素早く2回で「。」に差し替え。バッファがあれば先頭候補を暗黙確定） |
+
+### 辞書
+
+`pinyin_abbrev.json`（~224KB）をバンドルリソースとして同梱。CC-CEDICT をピンイン情報源、OpenSubtitles 頻度リストをランキング源として `scripts/generate_pinyin_dict.py` で生成。
+
+JSON フォーマット（繁体字フィールド `t` を含む、将来の繁体字モード対応用）:
+```json
+{
+  "nh": [
+    {"w": "你好", "t": "你好", "p": "ni3 hao3"},
+    {"w": "女孩", "t": "女孩", "p": "nu:3 hai2"}
+  ]
+}
+```
+
+### 将来拡張: 繁体字対応
+
+- `GamepadInputMode.chineseTraditional` を追加してバッジ「繁體」で区別
+- `PinyinEngine.variant` を `.traditional` に切り替えると `t` フィールドの繁体字を表示
+- 辞書 JSON は既に繁体字フィールドを含むため、データ追加不要
+
 ## 共通操作
 
 全モードで共通のボタン割り当て。
@@ -247,11 +308,11 @@ syllable = 0xAC00 + (onset * 21 + nucleus) * 28 + coda
 |------|-----------|
 | LS 押込み | 確定（composing/selecting 時、文節単位の部分確定対応） / 改行（idle 時） |
 | RS 押込み | キャンセル（composing 破棄） |
-| Back ボタン | スペース（日本語は IME 経由で appendDirectKana、英語/韓国語は onDirectInsert） |
+| Back ボタン | スペース（日本語は IME 経由で appendDirectKana、英語/韓国語/中国語は onDirectInsert。中国語はバッファがあれば先頭候補を暗黙確定） |
 | Start + Back 同時押し | テキスト共有（composing 確定後、共有シート表示。App Intent 経由でショートカットアプリ連携も可） |
 | 右スティック ← | バックスペース（全モード共通。idle 時は UITextView 側で削除、composing 時は InputManager で削除） |
-| 左スティック ←/→ | カーソル移動（idle 時。英語/韓国語は常時カーソル移動） |
-| Start ボタン | モード切替（日本語 → 韓国語 → 英語 → 日本語）※ Start+Back 同時押し時はスキップ |
+| 左スティック ←/→ | カーソル移動（idle 時。英語/韓国語/中国語は常時カーソル移動。中国語で候補表示中は ↑↓ が候補選択に） |
+| Start ボタン | モード切替（日本語 → 韓国語 → 英語 → 中国語簡体 → 日本語）※ Start+Back 同時押し時はスキップ |
 
 ## ビジュアライザ
 
@@ -263,6 +324,7 @@ syllable = 0xAC00 + (onset * 21 + nucleus) * 28 + coda
   - 青 = 日本語
   - 緑 = EN
   - 紫 = 한국어
+  - 赤 = 简体（中国語簡体字モード時、バッジ横にピンインバッファを表示）
 - **D-pad グリッド（左側）**: モードとレイヤー（LB 押下時）に応じたラベルを表示
 - **フェイスボタングリッド（右側）**: モードに応じた文字ラベルを表示
 - **プレビュー文字（中央）**: 現在の子音行名 + 入力候補文字を大きく表示
@@ -275,6 +337,7 @@ syllable = 0xAC00 + (onset * 21 + nucleus) * 28 + coda
 - 英語モード: Shift / SmartCaps / CapsLock 状態がフェイスボタンのラベル（大文字/小文字）と LT ラベル（"SHIFT" / "Caps" / "CAPS"）に反映される
 - 韓国語モード: RT 押下中はフェイスボタンが y系母音ラベルに切り替わる
 - 日本語モード: LB 押下で D-pad ラベルが は行〜わ行レイヤーに切り替わる
+- 中国語簡体モード: 英語モードと同じ十字配置ラベル（シフトなし）。LT/RT は「—」（未使用）
 
 ## エディタ
 
@@ -298,4 +361,4 @@ syllable = 0xAC00 + (onset * 21 + nucleus) * 28 + coda
 - **App Intents 連携**: 全文を他アプリに送信するショートカット
 - **記号パレット**: Select ボタンから呼び出す記号・絵文字選択 UI
 - **設定画面**: モードサイクルのカスタマイズ、chord ウィンドウ調整等
-- **中国語モード（ピンイン）**: CJK 3言語対応。声母を D-pad + LB の10位置にグルーピング（調音点ベース: b/p, d/t, g/k/h, j/q/x, zh/ch/sh, z/c/s 等）し、韓国語の子音サイクルと同パターンで右スティック↑で切替。韻母は基本5母音（フェイスボタン）+ RT シフト + 右スティック後置（-n/-ng）。声調は省略可（IME 側で曖昧マッチ）。変換エンジンは librime（[LibrimeKit](https://github.com/imfuxiao/Hamster) で iOS 向けビルド済み）を想定
+- **中国語繁体字モード**: `ChineseVariant.traditional` + バッジ「繁體」で台湾向け対応。辞書 JSON は既に繁体字フィールドを含むため、PinyinEngine の variant 切替のみで実現可能
