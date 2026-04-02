@@ -247,11 +247,11 @@ syllable = 0xAC00 + (onset * 21 + nucleus) * 28 + coda
 |------|-----------|
 | LS 押込み | 確定（composing/selecting 時、文節単位の部分確定対応） / 改行（idle 時） |
 | RS 押込み | キャンセル（composing 破棄） |
-| Back ボタン | スペース（日本語は composing 確定後に挿入、英語/韓国語は onDirectInsert） |
+| Back ボタン | スペース（日本語は IME 経由で appendDirectKana、英語/韓国語は onDirectInsert） |
+| Start + Back 同時押し | テキスト共有（composing 確定後、共有シート表示。App Intent 経由でショートカットアプリ連携も可） |
 | 右スティック ← | バックスペース（全モード共通。idle 時は UITextView 側で削除、composing 時は InputManager で削除） |
-| 左スティック ←/→ | カーソル左右移動（idle 時。英語/韓国語は常時カーソル移動） |
-| 左スティック ↑/↓ | カーソル上下移動（idle 時、列位置保持。日本語 composing 中は変換操作） |
-| Start ボタン | モード切替（日本語 → 韓国語 → 英語 → 日本語） |
+| 左スティック ←/→ | カーソル移動（idle 時。英語/韓国語は常時カーソル移動） |
+| Start ボタン | モード切替（日本語 → 韓国語 → 英語 → 日本語）※ Start+Back 同時押し時はスキップ |
 
 ## ビジュアライザ
 
