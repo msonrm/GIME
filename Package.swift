@@ -36,7 +36,8 @@ let package = Package(
             path: "Sources/GIME",
             resources: [
                 .copy("Resources/PrivacyInfo.xcprivacy"),
-                .copy("Resources/pinyin_abbrev.json")
+                .copy("Resources/pinyin_abbrev.json"),
+                .copy("Resources/zhuyin_abbrev.json")
             ]
         )
     ]

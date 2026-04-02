@@ -16,6 +16,8 @@ struct GamepadVisualizerView: View {
             return gamepadInput.activeLayer == .lb ? dpadLabelsLB : dpadLabelsBase
         case .english, .chineseSimplified:
             return gamepadInput.activeLayer == .lb ? englishDpadLabelsLB : englishDpadLabelsBase
+        case .chineseTraditional:
+            return gamepadInput.activeLayer == .lb ? zhuyinDpadLabelsLB : zhuyinDpadLabelsBase
         case .korean:
             return gamepadInput.activeLayer == .lb ? koreanDpadLabelsLB : koreanDpadLabelsBase
         }
@@ -37,6 +39,7 @@ struct GamepadVisualizerView: View {
             return row
         case .korean: return isRTPressed ? koreanVowelCharsShifted : koreanVowelCharsBase
         case .chineseSimplified: return englishTable[gamepadInput.activeRow]
+        case .chineseTraditional: return zhuyinTable[gamepadInput.activeRow]
         }
     }
 
@@ -44,6 +47,7 @@ struct GamepadVisualizerView: View {
         switch mode {
         case .japanese: return rowNames
         case .english, .chineseSimplified: return englishRowNames
+        case .chineseTraditional: return zhuyinRowNames
         case .korean: return koreanRowNames
         }
     }
@@ -53,6 +57,7 @@ struct GamepadVisualizerView: View {
         switch mode {
         case .japanese: return "は〜"
         case .english, .chineseSimplified: return "pqrs〜"
+        case .chineseTraditional: return "ㄗㄘㄙ〜"
         case .korean: return "ㅁ〜"
         }
     }
@@ -65,7 +70,7 @@ struct GamepadVisualizerView: View {
             if gamepadInput.englishShiftNext { return "Shift" }
             return "shift"
         case .korean: return "ㅇ"
-        case .chineseSimplified: return "—"
+        case .chineseSimplified, .chineseTraditional: return "—"
         case .japanese: return "拗音"
         }
     }
@@ -78,14 +83,14 @@ struct GamepadVisualizerView: View {
         switch mode {
         case .english: return "0"
         case .korean: return "ㅑㅕ"
-        case .chineseSimplified: return "—"
+        case .chineseSimplified, .chineseTraditional: return "—"
         case .japanese: return "ん"
         }
     }
 
     private var faceCenterLabel: String {
         switch mode {
-        case .english, .chineseSimplified: return "文字"
+        case .english, .chineseSimplified, .chineseTraditional: return "文字"
         case .korean: return "모음"
         case .japanese: return "母音"
         }
@@ -97,6 +102,7 @@ struct GamepadVisualizerView: View {
         case .english: return .green
         case .korean: return .purple
         case .chineseSimplified: return .red
+        case .chineseTraditional: return .orange
         }
     }
 
@@ -107,7 +113,7 @@ struct GamepadVisualizerView: View {
         case .japanese: return "濁点"
         case .english: return "'"
         case .korean: return "ㅋㅌ"
-        case .chineseSimplified: return ""
+        case .chineseSimplified, .chineseTraditional: return ""
         }
     }
 
@@ -116,7 +122,7 @@ struct GamepadVisualizerView: View {
         case .japanese: return "、。"
         case .english: return ","
         case .korean: return "␣,."
-        case .chineseSimplified: return "，。"
+        case .chineseSimplified, .chineseTraditional: return "，。"
         }
     }
 
@@ -127,7 +133,7 @@ struct GamepadVisualizerView: View {
         case .japanese: return "ー"
         case .english: return "␣/."
         case .korean: return "ㅘㅝ"
-        case .chineseSimplified: return "␣"
+        case .chineseSimplified, .chineseTraditional: return "␣"
         }
     }
 
@@ -144,7 +150,7 @@ struct GamepadVisualizerView: View {
                     .clipShape(Capsule())
 
                 // 中国語モード: ピンインバッファ表示
-                if mode == .chineseSimplified && !gamepadInput.pinyinBuffer.isEmpty {
+                if (mode == .chineseSimplified || mode == .chineseTraditional) && !gamepadInput.pinyinBuffer.isEmpty {
                     Text(gamepadInput.pinyinBuffer)
                         .font(.system(size: 16, weight: .medium, design: .monospaced))
                         .foregroundStyle(.primary)
@@ -245,6 +251,7 @@ struct GamepadVisualizerView: View {
 
     private var dpadGrid: some View {
         let isEnglish = mode == .english || mode == .chineseSimplified
+        // 繁体字（注音）はラベル表示型（日本語/韓国語と同じスタイル）
         let offset = gamepadInput.activeLayer == .lb ? 5 : 0
 
         return Grid(horizontalSpacing: 4, verticalSpacing: 4) {

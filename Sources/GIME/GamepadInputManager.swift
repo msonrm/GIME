@@ -68,6 +68,11 @@ final class GamepadInputManager {
     private(set) var leftStickDirection: StickDirection = .neutral
     private(set) var currentMode: GamepadInputMode = .japanese
 
+    /// 中国語モード判定（簡体/繁体共通のロジック用）
+    var isChinese: Bool {
+        currentMode == .chineseSimplified || currentMode == .chineseTraditional
+    }
+
     /// Start ボタンでサイクルする言語の有効/無効設定
     var enabledModes: Set<GamepadInputMode> = Set(GamepadInputMode.allCases)
 
@@ -267,6 +272,14 @@ final class GamepadInputManager {
             } else {
                 previewChar = nil
             }
+        case .chineseTraditional:
+            if vowelNow {
+                let char = zhuyinTable[row][v]
+                if char.isEmpty { previewChar = nil }
+                else { previewChar = char }
+            } else {
+                previewChar = nil
+            }
         }
 
         // === モード別の文字入力・トリガー処理 ===
@@ -279,6 +292,8 @@ final class GamepadInputManager {
             handleKoreanInput(gp, row: row, vowel: vowel, ltNow: ltNow, rtNow: rtNow, now: now)
         case .chineseSimplified:
             handleChineseInput(gp, row: row, vowel: vowel, ltNow: ltNow, rtNow: rtNow, now: now)
+        case .chineseTraditional:
+            handleZhuyinInput(gp, row: row, vowel: vowel, ltNow: ltNow, rtNow: rtNow, now: now)
         }
 
         // === 右スティック（共通: ← バックスペース） ===
@@ -295,7 +310,7 @@ final class GamepadInputManager {
         let rStickDown = dominant == "y" && rsY < 0
 
         if rStickLeft && !prevRStickLeft {
-            if currentMode == .chineseSimplified && !pinyinBuffer.isEmpty {
+            if isChinese && !pinyinBuffer.isEmpty {
                 pinyinBuffer.removeLast()
                 updatePinyinCandidates()
             } else {
@@ -340,7 +355,7 @@ final class GamepadInputManager {
             // → 複合母音（ㅏ/ㅓ付加: ㅗ→ㅘ, ㅜ→ㅝ）
             if rStickRight && !prevRStickRight { handleKoreanVowelAddAEo() }
             // ↓ スペース→カンマ→ピリオド（トグル）
-        case .chineseSimplified:
+        case .chineseSimplified, .chineseTraditional:
             // → スペース（バッファあれば先に先頭候補を確定）
             if rStickRight && !prevRStickRight {
                 confirmPinyinTopCandidate()
@@ -403,7 +418,7 @@ final class GamepadInputManager {
         else if lStickUp { leftStickDirection = .up }
         else { leftStickDirection = .neutral }
 
-        if currentMode == .chineseSimplified && !pinyinCandidates.isEmpty {
+        if isChinese && !pinyinCandidates.isEmpty {
             // 中国語候補選択中: ↑↓ で候補移動
             if lStickDown && !prevLStickDown {
                 pinyinSelectedIndex = min(pinyinSelectedIndex + 1, pinyinCandidates.count - 1)
@@ -414,7 +429,7 @@ final class GamepadInputManager {
             // ←→ はカーソル移動
             if lStickRight && !prevLStickRight { onCursorMove?(1) }
             if lStickLeft && !prevLStickLeft { onCursorMove?(-1) }
-        } else if currentMode == .english || currentMode == .korean || currentMode == .chineseSimplified {
+        } else if currentMode == .english || currentMode == .korean || isChinese {
             // 英語/韓国語/中国語（候補なし）: 常にカーソル移動（上下左右）
             if lStickRight && !prevLStickRight { onCursorMove?(1) }
             if lStickLeft && !prevLStickLeft { onCursorMove?(-1) }
@@ -444,19 +459,19 @@ final class GamepadInputManager {
         } else {
             if prevBack && !gp.back {
                 if currentMode == .korean { koreanComposer.commit() }
-                if currentMode == .chineseSimplified { confirmPinyinTopCandidate() }
+                if isChinese { confirmPinyinTopCandidate() }
                 onDirectInsert?(" ", 0)
             }
         }
         if prevLS && !gp.lsClick {
-            if currentMode == .chineseSimplified && !pinyinCandidates.isEmpty {
+            if isChinese && !pinyinCandidates.isEmpty {
                 confirmPinyinSelectedCandidate()
             } else {
                 executeAction(.confirmOrNewline)
             }
         }
         if prevRS && !gp.rsClick {
-            if currentMode == .chineseSimplified && !pinyinBuffer.isEmpty {
+            if isChinese && !pinyinBuffer.isEmpty {
                 clearPinyinState()
             } else {
                 executeAction(.cancel)
@@ -486,6 +501,12 @@ final class GamepadInputManager {
             koreanComposer.commit()
             pendingPatchimRow = nil
             clearPinyinState()
+            // 中国語モードの variant を同期
+            if currentMode == .chineseSimplified {
+                pinyinEngine?.variant = .simplified
+            } else if currentMode == .chineseTraditional {
+                pinyinEngine?.variant = .traditional
+            }
         }
 
         // --- 前フレーム状態更新 ---
@@ -806,6 +827,31 @@ final class GamepadInputManager {
         }
     }
 
+    // MARK: - 繁体字入力（注音首 = abbreviated zhuyin）
+
+    private func handleZhuyinInput(_ gp: GamepadSnapshot, row: Int, vowel: VowelButton?,
+                                   ltNow: Bool, rtNow: Bool, now: TimeInterval) {
+        let vowelNow = vowel != nil
+        let v = vowel?.rawValue ?? 0
+
+        // 注音テーブルから記号を取得
+        if vowelNow {
+            let char = zhuyinTable[row][v]
+            guard !char.isEmpty else { return }
+            guard let zhuyinChar = char.first,
+                  let pinyinChar = zhuyinToPinyinInitial[zhuyinChar] else { return }
+
+            let vowelChanged = vowel != prevVowel
+            let rowChanged = row != prevRow
+
+            if prevVowel == nil || vowelChanged || rowChanged {
+                // ピンインバッファに abbreviated pinyin 頭文字を追加（検索用）
+                pinyinBuffer += String(pinyinChar)
+                updatePinyinCandidates()
+            }
+        }
+    }
+
     // MARK: - 中国語ヘルパー
 
     /// ピンインバッファに基づいて候補を更新する
@@ -861,7 +907,7 @@ final class GamepadInputManager {
             applyToggleDakuten()
         case .deleteBack:
             if currentMode == .korean { koreanComposer.commit() }
-            if currentMode == .chineseSimplified { clearPinyinState() }
+            if isChinese { clearPinyinState() }
             if inputManager.isEmpty {
                 // idle 時: UITextView 側で1文字削除
                 onDeleteBackward?()

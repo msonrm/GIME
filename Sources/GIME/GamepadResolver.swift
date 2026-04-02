@@ -14,6 +14,7 @@ enum GamepadInputMode: CaseIterable {
     case english
     case korean
     case chineseSimplified
+    case chineseTraditional
 
     var label: String {
         switch self {
@@ -21,12 +22,13 @@ enum GamepadInputMode: CaseIterable {
         case .english: return "EN"
         case .korean: return "한국어"
         case .chineseSimplified: return "简体"
+        case .chineseTraditional: return "繁體"
         }
     }
 
-    /// サイクル順: 日本語 → 韓国語 → 英語 → 简体中文 → 日本語（有効なモードのみ）
+    /// サイクル順（有効なモードのみ）
     func next(enabledModes: Set<GamepadInputMode> = Set(GamepadInputMode.allCases)) -> GamepadInputMode {
-        let order: [GamepadInputMode] = [.japanese, .korean, .english, .chineseSimplified]
+        let order: [GamepadInputMode] = [.japanese, .korean, .english, .chineseSimplified, .chineseTraditional]
         guard let currentIndex = order.firstIndex(of: self) else { return self }
         for offset in 1...order.count {
             let candidate = order[(currentIndex + offset) % order.count]
@@ -253,7 +255,55 @@ let englishDpadLabelsLB = DpadLabels(center: "mno", left: "pqrs", up: "tuv", rig
 
 // MARK: - 中国語（简体）テーブル
 
-/// 中国語は英語テーブルを再利用（abbreviated pinyin = アルファベット入力）
+/// 中国語簡体は英語テーブルを再利用（abbreviated pinyin = アルファベット入力）
 let chineseDpadLabelsBase = englishDpadLabelsBase
 let chineseDpadLabelsLB = englishDpadLabelsLB
 let chineseRowNames = englishRowNames
+
+// MARK: - 中国語（繁體）注音テーブル
+
+/// 注音符号テーブル（10行 x 5列、ガラケー配列ベース）
+/// D-pad + LB で行選択、フェイスボタン + RB で列選択
+let zhuyinTable: [[String]] = [
+    // Row 0: ニュートラル  RB    X(左)  Y(上)  B(右)  A(下)
+    ["ㄅ", "ㄆ", "ㄇ", "ㄈ", ""],        // 唇音
+    // Row 1: D-pad ←
+    ["ㄉ", "ㄊ", "ㄋ", "ㄌ", ""],        // 舌尖音
+    // Row 2: D-pad ↑
+    ["ㄍ", "ㄎ", "ㄏ", "", ""],           // 舌根音
+    // Row 3: D-pad →
+    ["ㄐ", "ㄑ", "ㄒ", "", ""],           // 舌面音
+    // Row 4: D-pad ↓
+    ["ㄓ", "ㄔ", "ㄕ", "ㄖ", ""],        // そり舌音
+    // Row 5: LB
+    ["ㄗ", "ㄘ", "ㄙ", "", ""],           // 舌歯音
+    // Row 6: LB + ←
+    ["ㄚ", "ㄛ", "ㄜ", "ㄝ", ""],        // 単母音
+    // Row 7: LB + ↑
+    ["ㄞ", "ㄟ", "ㄠ", "ㄡ", ""],        // 複母音
+    // Row 8: LB + →
+    ["ㄢ", "ㄣ", "ㄤ", "ㄥ", "ㄦ"],     // 鼻母音
+    // Row 9: LB + ↓
+    ["ㄧ", "ㄨ", "ㄩ", "", ""],           // 介母
+]
+
+/// 注音 D-pad ラベル
+let zhuyinDpadLabelsBase = DpadLabels(center: "ㄅㄆㄇㄈ", left: "ㄉㄊㄋㄌ", up: "ㄍㄎㄏ", right: "ㄐㄑㄒ", down: "ㄓㄔㄕㄖ")
+let zhuyinDpadLabelsLB = DpadLabels(center: "ㄗㄘㄙ", left: "ㄚㄛㄜㄝ", up: "ㄞㄟㄠㄡ", right: "ㄢㄣㄤㄥ", down: "ㄧㄨㄩ")
+let zhuyinRowNames = ["ㄅㄆㄇㄈ", "ㄉㄊㄋㄌ", "ㄍㄎㄏ", "ㄐㄑㄒ", "ㄓㄔㄕㄖ", "ㄗㄘㄙ", "ㄚㄛㄜㄝ", "ㄞㄟㄠㄡ", "ㄢㄣㄤㄥ", "ㄧㄨㄩ"]
+
+/// 注音声母 → abbreviated pinyin 頭文字変換マップ
+let zhuyinToPinyinInitial: [Character: Character] = [
+    "ㄅ": "b", "ㄆ": "p", "ㄇ": "m", "ㄈ": "f",
+    "ㄉ": "d", "ㄊ": "t", "ㄋ": "n", "ㄌ": "l",
+    "ㄍ": "g", "ㄎ": "k", "ㄏ": "h",
+    "ㄐ": "j", "ㄑ": "q", "ㄒ": "x",
+    "ㄓ": "z", "ㄔ": "c", "ㄕ": "s", "ㄖ": "r",
+    "ㄗ": "z", "ㄘ": "c", "ㄙ": "s",
+    // 韻母（零声母として使用）
+    "ㄚ": "a", "ㄛ": "o", "ㄜ": "e", "ㄝ": "e",
+    "ㄞ": "a", "ㄟ": "e", "ㄠ": "a", "ㄡ": "o",
+    "ㄢ": "a", "ㄣ": "e", "ㄤ": "a", "ㄥ": "e",
+    "ㄦ": "e",
+    "ㄧ": "y", "ㄨ": "w", "ㄩ": "y",
+]

@@ -67,14 +67,14 @@ struct ContentView: View {
                     }
                     // 中国語ピンイン候補ポップアップ
                     else if let gp = gamepadInput,
-                            gp.currentMode == .chineseSimplified,
+                            gp.isChinese,
                             !gp.pinyinCandidates.isEmpty {
                         CandidatePopup(
                             additionalCandidates: [],
                             isAdditionalCandidateSelected: false,
                             selectedAdditionalCandidateIndex: 0,
                             candidates: gp.pinyinCandidates.map {
-                                "\(pinyinEngine.displayText(for: $0))  \($0.p)"
+                                "\($0.word)  \($0.reading)"
                             },
                             selectedIndex: gp.pinyinSelectedIndex,
                             font: .system(size: 28),

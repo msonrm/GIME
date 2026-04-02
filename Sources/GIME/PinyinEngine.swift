@@ -1,9 +1,7 @@
-/// Abbreviated pinyin (简拼) 検索エンジン
+/// CJK 入力候補検索エンジン
 ///
-/// CC-CEDICT + OpenSubtitles 頻度リストから生成した辞書 JSON をロードし、
-/// abbreviated pinyin キーで候補を検索する。
-///
-/// 将来的に繁体字対応を追加可能（辞書 JSON に `t` フィールドを含む）。
+/// Abbreviated pinyin (简拼) / abbreviated zhuyin (注音首) で候補を検索する。
+/// 簡体字は CC-CEDICT + OpenSubtitles、繁体字は libchewing をデータソースとする。
 
 import Foundation
 import Observation
@@ -26,22 +24,34 @@ enum ChineseVariant: Sendable {
 
 // MARK: - 候補データ
 
-/// ピンイン候補エントリ
-struct PinyinCandidate: Codable, Sendable {
-    /// 簡体字
-    let w: String
-    /// 繁体字
-    let t: String
-    /// ピンイン（声調番号付き、例: "ni3 hao3"）
-    let p: String
+/// 簡体字候補エントリ（pinyin_abbrev.json）
+private struct SimplifiedEntry: Codable {
+    let w: String  // 簡体字
+    let t: String  // 繁体字
+    let p: String  // ピンイン
+}
+
+/// 繁体字候補エントリ（zhuyin_abbrev.json）
+private struct TraditionalEntry: Codable {
+    let w: String  // 繁体字
+    let z: String  // 注音
+    let p: String  // abbreviated pinyin key
+}
+
+/// 統一候補型（外部に公開）
+struct PinyinCandidate: Sendable {
+    /// 表示テキスト（variant に応じて簡体字 or 繁体字）
+    let word: String
+    /// 読み表示（簡体字=ピンイン、繁体字=注音）
+    let reading: String
 }
 
 // MARK: - 検索エンジン
 
-/// Abbreviated pinyin 検索エンジン
+/// CJK 候補検索エンジン
 ///
-/// バンドルされた `pinyin_abbrev.json` をロードし、
-/// abbreviated pinyin キーで頻度順の候補リストを返す。
+/// `pinyin_abbrev.json`（簡体字）と `zhuyin_abbrev.json`（繁体字）をロードし、
+/// abbreviated key で頻度順の候補リストを返す。
 @MainActor
 @Observable
 final class PinyinEngine {
@@ -49,59 +59,73 @@ final class PinyinEngine {
     var variant: ChineseVariant = .simplified
 
     /// 辞書がロード済みかどうか
-    private(set) var isLoaded = false
+    private(set) var isSimplifiedLoaded = false
+    private(set) var isTraditionalLoaded = false
 
-    /// abbreviated pinyin → 候補リスト（頻度順）
-    private var index: [String: [PinyinCandidate]] = [:]
+    /// abbreviated key → 候補リスト
+    private var simplifiedIndex: [String: [PinyinCandidate]] = [:]
+    private var traditionalIndex: [String: [PinyinCandidate]] = [:]
 
-    /// バンドルされた辞書 JSON をロードする
-    func load() {
-        guard !isLoaded else { return }
-
-        guard let url = Bundle.module.url(
-            forResource: "pinyin_abbrev",
-            withExtension: "json"
-        ) else {
-            print("[PinyinEngine] pinyin_abbrev.json not found in bundle")
+    /// 簡体字辞書をロードする
+    func loadSimplified() {
+        guard !isSimplifiedLoaded else { return }
+        guard let url = Bundle.module.url(forResource: "pinyin_abbrev", withExtension: "json") else {
+            print("[PinyinEngine] pinyin_abbrev.json not found")
             return
         }
-
         do {
             let data = try Data(contentsOf: url)
-            index = try JSONDecoder().decode(
-                [String: [PinyinCandidate]].self,
-                from: data
-            )
-            isLoaded = true
-            print("[PinyinEngine] Loaded \(index.count) keys")
+            let raw = try JSONDecoder().decode([String: [SimplifiedEntry]].self, from: data)
+            simplifiedIndex = raw.mapValues { entries in
+                entries.map { PinyinCandidate(word: $0.w, reading: $0.p) }
+            }
+            isSimplifiedLoaded = true
+            print("[PinyinEngine] Simplified: \(simplifiedIndex.count) keys")
         } catch {
-            print("[PinyinEngine] Failed to load dictionary: \(error)")
+            print("[PinyinEngine] Failed to load simplified: \(error)")
         }
     }
 
-    /// abbreviated pinyin キーで候補を検索する
-    ///
-    /// - Parameters:
-    ///   - abbreviation: abbreviated pinyin 文字列（例: "nh"）
-    ///   - limit: 返す候補の最大数（デフォルト 9）
-    /// - Returns: 頻度順の候補リスト
+    /// 繁体字辞書をロードする
+    func loadTraditional() {
+        guard !isTraditionalLoaded else { return }
+        guard let url = Bundle.module.url(forResource: "zhuyin_abbrev", withExtension: "json") else {
+            print("[PinyinEngine] zhuyin_abbrev.json not found")
+            return
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            let raw = try JSONDecoder().decode([String: [TraditionalEntry]].self, from: data)
+            traditionalIndex = raw.mapValues { entries in
+                entries.map { PinyinCandidate(word: $0.w, reading: $0.z) }
+            }
+            isTraditionalLoaded = true
+            print("[PinyinEngine] Traditional: \(traditionalIndex.count) keys")
+        } catch {
+            print("[PinyinEngine] Failed to load traditional: \(error)")
+        }
+    }
+
+    /// 両方の辞書をロードする
+    func load() {
+        loadSimplified()
+        loadTraditional()
+    }
+
+    /// abbreviated key で候補を検索する
     func lookup(_ abbreviation: String, limit: Int = 9) -> [PinyinCandidate] {
         guard !abbreviation.isEmpty else { return [] }
         let key = abbreviation.lowercased()
 
+        let index = variant == .simplified ? simplifiedIndex : traditionalIndex
         if let candidates = index[key] {
             return Array(candidates.prefix(limit))
         }
         return []
     }
 
-    /// variant に応じた表示テキストを返す
+    /// 候補の表示テキストを返す
     func displayText(for candidate: PinyinCandidate) -> String {
-        switch variant {
-        case .simplified:
-            return candidate.w
-        case .traditional:
-            return candidate.t
-        }
+        candidate.word
     }
 }
