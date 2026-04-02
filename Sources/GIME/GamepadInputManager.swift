@@ -865,7 +865,7 @@ final class GamepadInputManager {
         guard !pinyinCandidates.isEmpty,
               pinyinSelectedIndex < pinyinCandidates.count else { return }
         let candidate = pinyinCandidates[pinyinSelectedIndex]
-        let text = pinyinEngine?.displayText(for: candidate) ?? candidate.w
+        let text = pinyinEngine?.displayText(for: candidate) ?? candidate.word
         onDirectInsert?(text, 0)
         clearPinyinState()
     }
@@ -874,7 +874,7 @@ final class GamepadInputManager {
     private func confirmPinyinTopCandidate() {
         guard !pinyinBuffer.isEmpty else { return }
         if let first = pinyinCandidates.first {
-            let text = pinyinEngine?.displayText(for: first) ?? first.w
+            let text = pinyinEngine?.displayText(for: first) ?? first.word
             onDirectInsert?(text, 0)
         }
         clearPinyinState()
