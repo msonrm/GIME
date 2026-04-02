@@ -120,7 +120,7 @@ final class ZenzaiModelManager {
 
     /// URLSessionDownloadDelegate（進捗通知 + 完了処理）
     private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
-        private weak var manager: ZenzaiModelManager?
+        private nonisolated(unsafe) weak var manager: ZenzaiModelManager?
 
         init(manager: ZenzaiModelManager) {
             self.manager = manager
