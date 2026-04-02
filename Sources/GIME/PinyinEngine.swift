@@ -8,6 +8,14 @@
 import Foundation
 import Observation
 
+#if !SWIFT_PACKAGE
+/// XcodeGen ビルド用 Bundle.module 互換シム
+private class _BundleToken {}
+extension Bundle {
+    static let module = Bundle(for: _BundleToken.self)
+}
+#endif
+
 // MARK: - 中国語変異体
 
 /// 中国語変異体（簡体/繁体）
