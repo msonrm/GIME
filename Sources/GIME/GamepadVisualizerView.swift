@@ -133,7 +133,6 @@ struct GamepadVisualizerView: View {
                 .clipShape(Capsule())
 
             HStack(spacing: 24) {
-                // 左側: LT/LB + D-pad（LT=外側, LB=内側）
                 VStack(spacing: 8) {
                     HStack(spacing: 6) {
                         shoulderButton(
@@ -188,6 +187,7 @@ struct GamepadVisualizerView: View {
                 Text(name)
                     .font(.caption2)
                     .foregroundStyle(.quaternary)
+                    .padding(.bottom, 2)
             }
         }
     }

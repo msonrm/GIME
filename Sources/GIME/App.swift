@@ -14,6 +14,7 @@ struct GIMEApp: App {
 struct ContentView: View {
     @State private var inputManager = InputManager()
     @State private var gamepadInput: GamepadInputManager?
+    @State private var zenzaiManager = ZenzaiModelManager()
 
     // ゲームパッド専用アプリだが、キーボード入力も受け付ける（フォールバック）
     private var keyRouter: KeyRouter {
@@ -65,11 +66,15 @@ struct ContentView: View {
                     }
                 }
 
-                // ゲームパッドビジュアライザ（接続時のみ）
+                // Zenzai トグル + ゲームパッドビジュアライザ
                 if let gp = gamepadInput, gp.isConnected {
-                    GamepadVisualizerView(gamepadInput: gp)
-                        .padding()
-                        .background(.ultraThinMaterial)
+                    VStack(spacing: 0) {
+                        zenzaiBar
+                        GamepadVisualizerView(gamepadInput: gp)
+                            .padding([.horizontal, .top])
+                            .padding(.bottom, 4)
+                    }
+                    .background(.ultraThinMaterial)
                 }
             }
         }
@@ -149,6 +154,51 @@ struct ContentView: View {
         .onChange(of: text) { _, newValue in
             UserDefaults.standard.set(newValue, forKey: SendTextIntent.editorTextKey)
         }
+        .onChange(of: zenzaiManager.state) { _, _ in
+            inputManager.zenzaiWeightURL = zenzaiManager.isEnabled ? zenzaiManager.modelURL : nil
+        }
+        .onChange(of: zenzaiManager.isEnabled) { _, newValue in
+            inputManager.zenzaiWeightURL = newValue ? zenzaiManager.modelURL : nil
+        }
+        .task {
+            inputManager.zenzaiWeightURL = zenzaiManager.isEnabled ? zenzaiManager.modelURL : nil
+        }
+    }
+
+    // MARK: - Zenzai バー
+
+    private var zenzaiBar: some View {
+        @Bindable var zm = zenzaiManager
+        return HStack(spacing: 8) {
+            Toggle(isOn: $zm.isEnabled) {
+                HStack(spacing: 4) {
+                    Image(systemName: "brain")
+                        .font(.caption2)
+                    Text("Zenzai")
+                        .font(.caption.bold())
+                }
+            }
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+
+            switch zenzaiManager.state {
+            case .downloading(let progress):
+                ProgressView(value: progress)
+                    .frame(width: 60)
+                Text("\(Int(progress * 100))%")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            case .error:
+                Button("再試行") { zenzaiManager.startDownloadIfNeeded() }
+                    .font(.caption2)
+            default:
+                EmptyView()
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
     }
 
     /// 共有シートを表示する
