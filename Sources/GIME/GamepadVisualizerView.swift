@@ -81,9 +81,8 @@ struct GamepadVisualizerView: View {
 
     private var rtLabel: String {
         switch mode {
-        case .english: return "0"
+        case .english, .chineseSimplified, .chineseTraditional: return "0"
         case .korean: return "ㅑㅕ"
-        case .chineseSimplified, .chineseTraditional: return "—"
         case .japanese: return "ん"
         }
     }
@@ -98,11 +97,11 @@ struct GamepadVisualizerView: View {
 
     private var modeBadgeColor: Color {
         switch mode {
-        case .japanese: return .blue
+        case .japanese: return .pink
         case .english: return .green
-        case .korean: return .purple
+        case .korean: return .indigo
         case .chineseSimplified: return .red
-        case .chineseTraditional: return .orange
+        case .chineseTraditional: return .blue
         }
     }
 
@@ -149,9 +148,9 @@ struct GamepadVisualizerView: View {
                     .foregroundStyle(.white)
                     .clipShape(Capsule())
 
-                // 中国語モード: ピンインバッファ表示
+                // 中国語モード: バッファ表示（繁体字は注音、簡体字はピンイン）
                 if (mode == .chineseSimplified || mode == .chineseTraditional) && !gamepadInput.pinyinBuffer.isEmpty {
-                    Text(gamepadInput.pinyinBuffer)
+                    Text(mode == .chineseTraditional ? gamepadInput.zhuyinDisplayBuffer : gamepadInput.pinyinBuffer)
                         .font(.system(size: 16, weight: .medium, design: .monospaced))
                         .foregroundStyle(.primary)
                         .padding(.horizontal, 8)
@@ -244,20 +243,23 @@ struct GamepadVisualizerView: View {
         if mode == .english {
             return englishDpadCrossChars(row: row)
         }
-        // 中国語: シフトなしで英語テーブルを使用
+        if mode == .chineseTraditional {
+            let r = zhuyinTable[row]
+            return (left: r[1], up: r[2], right: r[3], down: r[4])
+        }
+        // 簡体字: シフトなしで英語テーブルを使用
         let r = englishTable[row]
         return (left: r[1], up: r[2], right: r[3], down: r[4])
     }
 
     private var dpadGrid: some View {
-        let isEnglish = mode == .english || mode == .chineseSimplified
-        // 繁体字（注音）はラベル表示型（日本語/韓国語と同じスタイル）
+        let useCrossLayout = mode == .english || mode == .chineseSimplified || mode == .chineseTraditional
         let offset = gamepadInput.activeLayer == .lb ? 5 : 0
 
         return Grid(horizontalSpacing: 4, verticalSpacing: 4) {
             GridRow {
                 Color.clear.frame(width: 52, height: 52)
-                if isEnglish {
+                if useCrossLayout {
                     dpadButtonCross(chars: crossCharsForCurrentMode(row: 2 + offset), pressed: gamepadInput.pressedButtons.contains("dpadUp"))
                 } else {
                     dpadButton(label: dpad.up, pressed: gamepadInput.pressedButtons.contains("dpadUp"))
@@ -265,12 +267,12 @@ struct GamepadVisualizerView: View {
                 Color.clear.frame(width: 52, height: 52)
             }
             GridRow {
-                if isEnglish {
+                if useCrossLayout {
                     dpadButtonCross(chars: crossCharsForCurrentMode(row: 1 + offset), pressed: gamepadInput.pressedButtons.contains("dpadLeft"))
                 } else {
                     dpadButton(label: dpad.left, pressed: gamepadInput.pressedButtons.contains("dpadLeft"))
                 }
-                if isEnglish {
+                if useCrossLayout {
                     dpadButtonCross(chars: crossCharsForCurrentMode(row: 0 + offset), pressed: false)
                         .opacity(0.5)
                 } else {
@@ -280,7 +282,7 @@ struct GamepadVisualizerView: View {
                         .frame(width: 52, height: 52)
                         .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 8))
                 }
-                if isEnglish {
+                if useCrossLayout {
                     dpadButtonCross(chars: crossCharsForCurrentMode(row: 3 + offset), pressed: gamepadInput.pressedButtons.contains("dpadRight"))
                 } else {
                     dpadButton(label: dpad.right, pressed: gamepadInput.pressedButtons.contains("dpadRight"))
@@ -288,7 +290,7 @@ struct GamepadVisualizerView: View {
             }
             GridRow {
                 Color.clear.frame(width: 52, height: 52)
-                if isEnglish {
+                if useCrossLayout {
                     dpadButtonCross(chars: crossCharsForCurrentMode(row: 4 + offset), pressed: gamepadInput.pressedButtons.contains("dpadDown"))
                 } else {
                     dpadButton(label: dpad.down, pressed: gamepadInput.pressedButtons.contains("dpadDown"))

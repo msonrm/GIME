@@ -166,6 +166,8 @@ final class GamepadInputManager {
 
     // 中国語モード状態
     private(set) var pinyinBuffer: String = ""
+    /// 繁体字モード用: 注音表示バッファ（pinyinBuffer と並行して蓄積）
+    private(set) var zhuyinDisplayBuffer: String = ""
     private(set) var pinyinCandidates: [PinyinCandidate] = []
     private(set) var pinyinSelectedIndex: Int = 0
     var pinyinEngine: PinyinEngine?
@@ -274,6 +276,8 @@ final class GamepadInputManager {
             if vowelNow {
                 let char = englishTable[row][v]
                 if char.isEmpty { previewChar = nil }
+                // 数字（RB）はプレビューしない
+                else if char.first?.isNumber == true { previewChar = nil }
                 else { previewChar = char }
             } else {
                 previewChar = nil
@@ -282,6 +286,8 @@ final class GamepadInputManager {
             if vowelNow {
                 let char = zhuyinTable[row][v]
                 if char.isEmpty { previewChar = nil }
+                // 数字（RB）はプレビューしない
+                else if char.first?.isNumber == true { previewChar = nil }
                 else { previewChar = char }
             } else {
                 previewChar = nil
@@ -318,6 +324,7 @@ final class GamepadInputManager {
         if rStickLeft && !prevRStickLeft {
             if isChinese && !pinyinBuffer.isEmpty {
                 pinyinBuffer.removeLast()
+                if !zhuyinDisplayBuffer.isEmpty { zhuyinDisplayBuffer.removeLast() }
                 updatePinyinCandidates()
             } else {
                 executeAction(.deleteBack)
@@ -807,25 +814,47 @@ final class GamepadInputManager {
         onDirectInsert?(output.text, output.replaceCount)
     }
 
-    // MARK: - 中国語入力（简体、abbreviated pinyin）
+    // MARK: - 中国語入力（簡体・繁体共通）
 
+    /// 中国語モード共通: RB 数字入力 + RT「0」入力（バッファ空のときだけ）
+    private func handleChineseDigits(row: Int, vowel: VowelButton?, digit: String,
+                                     ltNow: Bool, rtNow: Bool) {
+        // RB（数字）: バッファが空のときだけ挿入
+        if vowel == .a && pinyinBuffer.isEmpty {
+            let vowelChanged = vowel != prevVowel
+            let rowChanged = row != prevRow
+            if prevVowel == nil || vowelChanged || rowChanged {
+                onDirectInsert?(digit, 0)
+            }
+        }
+
+        // RT: 数字「0」入力
+        if rtNow && !prevRT { rtUsed = false }
+        if !rtNow && prevRT {
+            if !rtUsed && !ltNow && pinyinBuffer.isEmpty {
+                onDirectInsert?("0", 0)
+            }
+            rtUsed = false
+        }
+    }
+
+    /// 簡体字入力（abbreviated pinyin）
     private func handleChineseInput(_ gp: GamepadSnapshot, row: Int, vowel: VowelButton?,
                                     ltNow: Bool, rtNow: Bool, now: TimeInterval) {
-        let vowelNow = vowel != nil
         let v = vowel?.rawValue ?? 0
 
-        // 英語テーブルを再利用してアルファベットを入力
-        if vowelNow {
+        handleChineseDigits(row: row, vowel: vowel, digit: englishTable[row][0],
+                            ltNow: ltNow, rtNow: rtNow)
+
+        // フェイスボタン（X/Y/B/A）: アルファベットをバッファに追加
+        if let vowel, vowel != .a {
             let char = englishTable[row][v]
             guard !char.isEmpty else { return }
-
-            // アルファベットのみバッファに追加（数字・記号はスキップ）
             let lower = char.lowercased()
             guard lower.first?.isLetter == true else { return }
 
             let vowelChanged = vowel != prevVowel
             let rowChanged = row != prevRow
-
             if prevVowel == nil || vowelChanged || rowChanged {
                 pinyinBuffer += lower
                 updatePinyinCandidates()
@@ -833,15 +862,16 @@ final class GamepadInputManager {
         }
     }
 
-    // MARK: - 繁体字入力（注音首 = abbreviated zhuyin）
-
+    /// 繁体字入力（abbreviated zhuyin）
     private func handleZhuyinInput(_ gp: GamepadSnapshot, row: Int, vowel: VowelButton?,
                                    ltNow: Bool, rtNow: Bool, now: TimeInterval) {
-        let vowelNow = vowel != nil
         let v = vowel?.rawValue ?? 0
 
-        // 注音テーブルから記号を取得
-        if vowelNow {
+        handleChineseDigits(row: row, vowel: vowel, digit: zhuyinTable[row][0],
+                            ltNow: ltNow, rtNow: rtNow)
+
+        // フェイスボタン（X/Y/B/A）: 注音をバッファに追加
+        if let vowel, vowel != .a {
             let char = zhuyinTable[row][v]
             guard !char.isEmpty else { return }
             guard let zhuyinChar = char.first,
@@ -849,10 +879,9 @@ final class GamepadInputManager {
 
             let vowelChanged = vowel != prevVowel
             let rowChanged = row != prevRow
-
             if prevVowel == nil || vowelChanged || rowChanged {
-                // ピンインバッファに abbreviated pinyin 頭文字を追加（検索用）
                 pinyinBuffer += String(pinyinChar)
+                zhuyinDisplayBuffer += String(zhuyinChar)
                 updatePinyinCandidates()
             }
         }
@@ -889,6 +918,7 @@ final class GamepadInputManager {
     /// ピンイン状態をクリアする
     private func clearPinyinState() {
         pinyinBuffer = ""
+        zhuyinDisplayBuffer = ""
         pinyinCandidates = []
         pinyinSelectedIndex = 0
     }
