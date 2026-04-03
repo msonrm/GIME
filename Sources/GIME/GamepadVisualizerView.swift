@@ -325,25 +325,33 @@ struct GamepadVisualizerView: View {
 
     // MARK: - 右スティックグリッド
 
+    private let stickSize: CGFloat = 36
+
     private var rightStickGrid: some View {
-        Grid(horizontalSpacing: 2, verticalSpacing: 2) {
-            GridRow {
-                Color.clear.frame(width: 40, height: 32)
-                stickButton(label: rStickUpLabel, pressed: gamepadInput.pressedButtons.contains("rStickUp"))
-                Color.clear.frame(width: 40, height: 32)
-            }
-            GridRow {
-                stickButton(label: rStickLeftLabel, pressed: gamepadInput.pressedButtons.contains("rStickLeft"))
-                Text("R🕹")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.quaternary)
-                    .frame(width: 40, height: 32)
-                stickButton(label: rStickRightLabel, pressed: gamepadInput.pressedButtons.contains("rStickRight"))
-            }
-            GridRow {
-                Color.clear.frame(width: 40, height: 32)
-                stickButton(label: rStickDownLabel, pressed: gamepadInput.pressedButtons.contains("rStickDown"))
-                Color.clear.frame(width: 40, height: 32)
+        let totalSize = stickSize * 3 + 8
+        return ZStack {
+            Circle()
+                .fill(Color(.systemGray6))
+                .frame(width: totalSize, height: totalSize)
+            Grid(horizontalSpacing: 4, verticalSpacing: 4) {
+                GridRow {
+                    Color.clear.frame(width: stickSize, height: stickSize)
+                    stickButton(label: rStickUpLabel, pressed: gamepadInput.pressedButtons.contains("rStickUp"))
+                    Color.clear.frame(width: stickSize, height: stickSize)
+                }
+                GridRow {
+                    stickButton(label: rStickLeftLabel, pressed: gamepadInput.pressedButtons.contains("rStickLeft"))
+                    Text("R")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.quaternary)
+                        .frame(width: stickSize, height: stickSize)
+                    stickButton(label: rStickRightLabel, pressed: gamepadInput.pressedButtons.contains("rStickRight"))
+                }
+                GridRow {
+                    Color.clear.frame(width: stickSize, height: stickSize)
+                    stickButton(label: rStickDownLabel, pressed: gamepadInput.pressedButtons.contains("rStickDown"))
+                    Color.clear.frame(width: stickSize, height: stickSize)
+                }
             }
         }
     }
@@ -410,8 +418,8 @@ struct GamepadVisualizerView: View {
     private func stickButton(label: String, pressed: Bool) -> some View {
         Text(label)
             .font(.system(size: 11, weight: .semibold))
-            .frame(width: 40, height: 32)
-            .background(pressed ? Color.accentColor : Color(.systemGray5).opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+            .frame(width: stickSize, height: stickSize)
+            .background(pressed ? Color.accentColor : Color(.systemGray5), in: Circle())
             .foregroundStyle(pressed ? .white : .secondary)
     }
 }

@@ -745,18 +745,25 @@ final class GamepadInputManager {
         if prevVowel != nil && !vowelNow {
             eagerChar = nil
         }
+        // ボタンリリース検出（prevConsonantCount 更新前に判定）
+        let consonantReleasing = dpadActive && consonantCount < prevConsonantCount
         prevConsonantCount = consonantCount
 
         // === 받침入力（即時適用+巻き戻し方式） ===
         // 音節入力後に全ボタンリリースを経てから받침入力を受け付ける。
         // D-pad エッジで받침を即適用し、row が変われば巻き戻して再適用する。
-        // 母音が来たら巻き戻す（上で処理済み）。全リリースで確定。
+        // ボタンリリースで確定（巻き戻しを停止）。母音が来たら巻き戻す（上で処理済み）。
 
         // 全ボタンリリース検出
         let allReleased = !dpadActive && !vowelNow && !ltNow
         if allReleased {
             allReleasedSinceSyllable = true
-            patchimRollbackActive = false  // 全リリースで받침確定
+            patchimRollbackActive = false
+        }
+
+        // ボタンリリースで받침確定（chord 解体中の誤巻き戻しを防止）
+        if consonantReleasing && patchimRollbackActive {
+            patchimRollbackActive = false
         }
 
         // D-pad エッジ → 받침即適用（or row変更で巻き戻して再適用）

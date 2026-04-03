@@ -91,6 +91,22 @@ struct ContentView: View {
                     )
                     .padding([.horizontal, .top])
                     .background(.ultraThinMaterial)
+                } else {
+                    VStack(spacing: 8) {
+                        HStack {
+                            Label("コントローラーを接続してください", systemImage: "gamecontroller")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 4)
+
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color(.systemGray6))
+                            .frame(height: 180)
+                    }
+                    .padding([.horizontal, .top])
+                    .background(.ultraThinMaterial)
                 }
             }
         }
