@@ -694,6 +694,20 @@ final class GamepadInputManager {
         let dpadActive = consonantCount > 0
         let prevDpadActive = prevConsonantCount > 0
 
+        // === 받침巻き戻し: 母音が来たら直前の받침を取り消す ===
+        // LB が先に到着して誤ったパッチムが適用された場合、
+        // 母音到着で新音節と判断し、パッチムを元に戻す。
+        if vowelNow && patchimRollbackActive {
+            koreanComposer.revertCoda(to: patchimRollbackCoda)
+            if let onset = koreanComposer.currentOnset,
+               let nucleus = koreanComposer.currentNucleus {
+                let coda = koreanComposer.currentCoda ?? 0
+                let code = 0xAC00 + (onset * 21 + nucleus) * 28 + coda
+                onDirectInsert?(String(Character(UnicodeScalar(code)!)), 1)
+            }
+            patchimRollbackActive = false
+        }
+
         // === 子音+母音 同時押し → 音節入力 ===
         // RT 同時押しで y系母音
         if vowelNow {
@@ -736,7 +750,7 @@ final class GamepadInputManager {
         // === 받침入力（即時適用+巻き戻し方式） ===
         // 音節入力後に全ボタンリリースを経てから받침入力を受け付ける。
         // D-pad エッジで받침を即適用し、row が変われば巻き戻して再適用する。
-        // 全リリースで確定。タイミング依存なし。
+        // 母音が来たら巻き戻す（上で処理済み）。全リリースで確定。
 
         // 全ボタンリリース検出
         let allReleased = !dpadActive && !vowelNow && !ltNow
@@ -746,9 +760,9 @@ final class GamepadInputManager {
         }
 
         // D-pad エッジ → 받침即適用（or row変更で巻き戻して再適用）
-        if !vowelNow && dpadActive && allReleasedSinceSyllable && koreanComposer.isComposing {
-            if !prevDpadActive {
-                // 新規エッジ → 받침を即適用
+        if !vowelNow && dpadActive && koreanComposer.isComposing {
+            if !prevDpadActive && allReleasedSinceSyllable {
+                // 新規エッジ（全リリース後）→ 받침を即適用
                 let prevCoda = koreanComposer.currentCoda
                 let codaIdx = koreanCodaForRow[row]
                 if case .added(let output) = koreanComposer.inputPatchim(codaIndex: codaIdx, codaRow: row) {
@@ -763,7 +777,6 @@ final class GamepadInputManager {
                 let codaIdx = koreanCodaForRow[row]
                 if case .added(let output) = koreanComposer.inputPatchim(codaIndex: codaIdx, codaRow: row) {
                     onDirectInsert?(output.text, output.replaceCount)
-                    // patchimRollbackCoda はそのまま（元のcoda値を保持）
                 }
             }
         }
