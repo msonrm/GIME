@@ -462,9 +462,10 @@ private struct GamepadSettingsSheet: View {
                 } header: {
                     Text("切替順序")
                 } footer: {
-                    Text("ドラッグして切り替え順を変更できます。")
+                    Text("ハンドルをドラッグして切り替え順を変更できます。")
                 }
             }
+            .environment(\.editMode, .constant(.active))
             .navigationTitle("設定")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -473,6 +474,6 @@ private struct GamepadSettingsSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
     }
 }

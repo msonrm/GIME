@@ -91,6 +91,12 @@ struct KoreanComposer {
         return Output(text: String(char), replaceCount: 1)
     }
 
+    /// 받침を巻き戻す（内部状態のみ変更、出力なし）
+    /// 即時適用した받침を取り消し、再適用するために使用
+    mutating func revertCoda(to previousCoda: Int?) {
+        coda = previousCoda
+    }
+
     /// 현재 중성을 変更する（複合母音）
     mutating func modifyNucleus(to newNucleus: Int) -> Output? {
         guard let onset else { return nil }

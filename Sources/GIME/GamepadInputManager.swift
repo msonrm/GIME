@@ -163,6 +163,8 @@ final class GamepadInputManager {
     // 韓国語モード状態
     private var koreanComposer = KoreanComposer()
     private var allReleasedSinceSyllable = true  // 音節入力後に全ボタンリリース済みか
+    private var patchimRollbackCoda: Int?  // 받침適用前のcoda値（巻き戻し用）
+    private var patchimRollbackActive = false  // 巻き戻し可能な받침が適用中か
 
     // 中国語モード状態
     private(set) var pinyinBuffer: String = ""
@@ -512,6 +514,7 @@ final class GamepadInputManager {
             englishSmartCaps = false
             lastRTWasSpace = false
             koreanComposer.commit()
+            patchimRollbackActive = false
             allReleasedSinceSyllable = true
             clearPinyinState()
             // 中国語モードの variant を同期
@@ -730,29 +733,47 @@ final class GamepadInputManager {
         }
         prevConsonantCount = consonantCount
 
-        // === 받침入力（全リリース後の即発火） ===
-        // 音節入力後に全ボタンリリースを経てから、D-pad/LT 単独で받침を即発火する。
-        // 全リリースを要求することで、LB+D-pad チョード途中の誤발火を構造的に防ぐ。
+        // === 받침入力（即時適用+巻き戻し方式） ===
+        // 音節入力後に全ボタンリリースを経てから받침入力を受け付ける。
+        // D-pad エッジで받침を即適用し、row が変われば巻き戻して再適用する。
+        // 全リリースで確定。タイミング依存なし。
 
         // 全ボタンリリース検出
         let allReleased = !dpadActive && !vowelNow && !ltNow
         if allReleased {
             allReleasedSinceSyllable = true
+            patchimRollbackActive = false  // 全リリースで받침確定
         }
 
-        // D-pad 単独エッジ → 받침即発火
-        if !vowelNow && dpadActive && !prevDpadActive && allReleasedSinceSyllable {
-            if koreanComposer.isComposing {
+        // D-pad エッジ → 받침即適用（or row変更で巻き戻して再適用）
+        if !vowelNow && dpadActive && allReleasedSinceSyllable && koreanComposer.isComposing {
+            if !prevDpadActive {
+                // 新規エッジ → 받침を即適用
+                let prevCoda = koreanComposer.currentCoda
                 let codaIdx = koreanCodaForRow[row]
-                handleKoreanPatchim(codaIndex: codaIdx, codaRow: row)
+                if case .added(let output) = koreanComposer.inputPatchim(codaIndex: codaIdx, codaRow: row) {
+                    onDirectInsert?(output.text, output.replaceCount)
+                    patchimRollbackCoda = prevCoda
+                    patchimRollbackActive = true
+                    allReleasedSinceSyllable = false
+                }
+            } else if row != prevRow && patchimRollbackActive {
+                // row が変わった（LB→LB+↑ 等）→ 巻き戻して再適用
+                koreanComposer.revertCoda(to: patchimRollbackCoda)
+                let codaIdx = koreanCodaForRow[row]
+                if case .added(let output) = koreanComposer.inputPatchim(codaIndex: codaIdx, codaRow: row) {
+                    onDirectInsert?(output.text, output.replaceCount)
+                    // patchimRollbackCoda はそのまま（元のcoda値を保持）
+                }
             }
         }
 
-        // LT エッジ（母音なし、D-pad なし） → ㅇ받침即発火
+        // LT エッジ → ㅇ받침即発火
         if ltNow && !prevLT && !vowelNow && !dpadActive && allReleasedSinceSyllable {
             if koreanComposer.isComposing && koreanComposer.currentCoda == nil {
-                let codaIdx = koreanCodaForRow[0]  // Row 0 = ㅇ
+                let codaIdx = koreanCodaForRow[0]
                 handleKoreanPatchim(codaIndex: codaIdx, codaRow: 0)
+                allReleasedSinceSyllable = false
             }
         }
 
