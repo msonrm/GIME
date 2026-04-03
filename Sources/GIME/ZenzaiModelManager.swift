@@ -43,9 +43,10 @@ final class ZenzaiModelManager {
         }
     }
 
-    /// ダウンロード済みモデルのローカル URL（未ダウンロードなら nil）
+    /// ダウンロード済みモデルのローカル URL（未ダウンロードまたはファイルが無効なら nil）
     var modelURL: URL? {
-        guard case .downloaded = state else { return nil }
+        guard case .downloaded = state,
+              Self.isValidModelFile(at: localModelURL) else { return nil }
         return localModelURL
     }
 
@@ -69,9 +70,12 @@ final class ZenzaiModelManager {
         // UserDefaults から復元
         isEnabled = UserDefaults.standard.bool(forKey: "zenzaiEnabled")
 
-        // ダウンロード済みかチェック
-        if FileManager.default.fileExists(atPath: localModelURL.path) {
+        // ダウンロード済みかチェック（ファイルサイズも検証し、壊れたファイルを除外）
+        if Self.isValidModelFile(at: localModelURL) {
             state = .downloaded
+        } else if FileManager.default.fileExists(atPath: localModelURL.path) {
+            // 壊れたファイルを削除
+            try? FileManager.default.removeItem(at: localModelURL)
         }
 
         // 有効かつ未ダウンロードなら開始
@@ -109,6 +113,17 @@ final class ZenzaiModelManager {
     func deleteModel() {
         try? FileManager.default.removeItem(at: localModelURL)
         state = .notDownloaded
+    }
+
+    /// モデルファイルが存在し、最低限のサイズがあるか検証する
+    ///
+    /// GGUF モデルは約 74 MB。1 MB 未満のファイルは破損とみなす。
+    private static let minimumModelFileSize: UInt64 = 1_000_000
+
+    static func isValidModelFile(at url: URL) -> Bool {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = attrs[.size] as? UInt64 else { return false }
+        return size >= minimumModelFileSize
     }
 
     private var isErrorState: Bool {
