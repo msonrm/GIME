@@ -73,8 +73,8 @@ final class GamepadInputManager {
         currentMode == .chineseSimplified || currentMode == .chineseTraditional
     }
 
-    /// Start ボタンでサイクルする言語の有効/無効設定
-    var enabledModes: Set<GamepadInputMode> = Set(GamepadInputMode.allCases)
+    /// Start ボタンでサイクルする言語の順序（配列の順序で切り替わる）
+    var enabledModes: [GamepadInputMode] = GamepadInputMode.allCases
 
     enum ActiveLayer { case base, lb }
 

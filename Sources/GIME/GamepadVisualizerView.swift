@@ -434,11 +434,10 @@ private struct GamepadSettingsSheet: View {
                             get: { gamepadInput.enabledModes.contains(mode) },
                             set: { enabled in
                                 if enabled {
-                                    gamepadInput.enabledModes.insert(mode)
+                                    gamepadInput.enabledModes.append(mode)
                                 } else {
-                                    // 最低1つは残す
                                     if gamepadInput.enabledModes.count > 1 {
-                                        gamepadInput.enabledModes.remove(mode)
+                                        gamepadInput.enabledModes.removeAll { $0 == mode }
                                     }
                                 }
                             }
@@ -451,8 +450,19 @@ private struct GamepadSettingsSheet: View {
                     }
                 } header: {
                     Text("Start ボタンの言語切替")
+                }
+
+                Section {
+                    ForEach(gamepadInput.enabledModes, id: \.self) { mode in
+                        Text(mode.label)
+                    }
+                    .onMove { source, destination in
+                        gamepadInput.enabledModes.move(fromOffsets: source, toOffset: destination)
+                    }
+                } header: {
+                    Text("切替順序")
                 } footer: {
-                    Text("Start ボタンで切り替える言語を選択します。最低1つは有効にする必要があります。")
+                    Text("ドラッグして切り替え順を変更できます。")
                 }
             }
             .navigationTitle("設定")
