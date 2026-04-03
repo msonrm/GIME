@@ -4,7 +4,6 @@ import SwiftUI
 /// Web 版 GamepadVisualizer.tsx の Swift 移植
 struct GamepadVisualizerView: View {
     let gamepadInput: GamepadInputManager
-    let zenzaiManager: ZenzaiModelManager
 
     @State private var showSettings = false
 
@@ -222,8 +221,7 @@ struct GamepadVisualizerView: View {
         }
         .sheet(isPresented: $showSettings) {
             GamepadSettingsSheet(
-                gamepadInput: gamepadInput,
-                zenzaiManager: zenzaiManager
+                gamepadInput: gamepadInput
             )
         }
     }
@@ -420,40 +418,15 @@ struct GamepadVisualizerView: View {
 
 // MARK: - 設定シート
 
-/// ビジュアライザ設定シート（Zenzai トグル + 言語サイクル設定）
+/// ビジュアライザ設定シート（言語サイクル設定）
 private struct GamepadSettingsSheet: View {
     let gamepadInput: GamepadInputManager
-    let zenzaiManager: ZenzaiModelManager
 
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        @Bindable var zm = zenzaiManager
-        return NavigationStack {
+        NavigationStack {
             Form {
-                // Zenzai セクション
-                Section("Zenzai") {
-                    Toggle(isOn: $zm.isEnabled) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "brain")
-                            Text("Zenzai（ニューラル変換）")
-                        }
-                    }
-                    switch zenzaiManager.state {
-                    case .downloading(let progress):
-                        HStack {
-                            ProgressView(value: progress)
-                            Text("\(Int(progress * 100))%")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    case .error:
-                        Button("再試行") { zenzaiManager.startDownloadIfNeeded() }
-                    default:
-                        EmptyView()
-                    }
-                }
-
                 // 言語サイクル設定セクション
                 Section {
                     ForEach(GamepadInputMode.allCases, id: \.self) { mode in

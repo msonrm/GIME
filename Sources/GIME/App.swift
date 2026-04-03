@@ -14,7 +14,6 @@ struct GIMEApp: App {
 struct ContentView: View {
     @State private var inputManager = InputManager()
     @State private var gamepadInput: GamepadInputManager?
-    @State private var zenzaiManager = ZenzaiModelManager()
     @State private var pinyinEngine = PinyinEngine()
 
     // ゲームパッド専用アプリだが、キーボード入力も受け付ける（フォールバック）
@@ -88,8 +87,7 @@ struct ContentView: View {
                 // ゲームパッドビジュアライザ（画面下ぴったり）
                 if let gp = gamepadInput, gp.isConnected {
                     GamepadVisualizerView(
-                        gamepadInput: gp,
-                        zenzaiManager: zenzaiManager
+                        gamepadInput: gp
                     )
                     .padding([.horizontal, .top])
                     .background(.ultraThinMaterial)
@@ -173,15 +171,6 @@ struct ContentView: View {
         }
         .onChange(of: text) { _, newValue in
             UserDefaults.standard.set(newValue, forKey: SendTextIntent.editorTextKey)
-        }
-        .onChange(of: zenzaiManager.state) { _, _ in
-            inputManager.zenzaiWeightURL = zenzaiManager.isEnabled ? zenzaiManager.modelURL : nil
-        }
-        .onChange(of: zenzaiManager.isEnabled) { _, newValue in
-            inputManager.zenzaiWeightURL = newValue ? zenzaiManager.modelURL : nil
-        }
-        .task {
-            inputManager.zenzaiWeightURL = zenzaiManager.isEnabled ? zenzaiManager.modelURL : nil
         }
     }
 
