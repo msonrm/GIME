@@ -162,7 +162,7 @@ final class GamepadInputManager {
 
     // 韓国語モード状態
     private var koreanComposer = KoreanComposer()
-    private var pendingPatchimRow: Int?  // 받침の1フレーム遅延発火用
+    private var allReleasedSinceSyllable = true  // 音節入力後に全ボタンリリース済みか
 
     // 中国語モード状態
     private(set) var pinyinBuffer: String = ""
@@ -512,7 +512,7 @@ final class GamepadInputManager {
             englishSmartCaps = false
             lastRTWasSpace = false
             koreanComposer.commit()
-            pendingPatchimRow = nil
+            allReleasedSinceSyllable = true
             clearPinyinState()
             // 中国語モードの variant を同期
             if currentMode == .chineseSimplified {
@@ -706,6 +706,7 @@ final class GamepadInputManager {
                 eagerChar = output.text
                 eagerCharLen = 1
                 eagerTime = now
+                allReleasedSinceSyllable = false
                 if rtNow { rtUsed = true }
             } else if rowChanged || vowelChanged {
                 let consonantReleased = rowChanged && consonantCount < prevConsonantCount
@@ -719,6 +720,7 @@ final class GamepadInputManager {
                     eagerChar = output.text
                     eagerCharLen = 1
                     eagerTime = now
+                    allReleasedSinceSyllable = false
                     if rtNow { rtUsed = true }
                 }
             }
@@ -728,35 +730,26 @@ final class GamepadInputManager {
         }
         prevConsonantCount = consonantCount
 
-        // === 받침入力（2ボル式スタイル、1フレーム遅延） ===
-        // 子音単独（母音なし） → 받침候補を記録、次フレームで安定していたら発火
-        // LB+↑ 等の chord 途中で LB 単独が誤って받침になる問題を防ぐ
+        // === 받침入力（全リリース後の即発火） ===
+        // 音節入力後に全ボタンリリースを経てから、D-pad/LT 単独で받침を即発火する。
+        // 全リリースを要求することで、LB+D-pad チョード途中の誤발火を構造的に防ぐ。
 
-        // 1. 前フレームの받침候補を確認（セットより先にチェック）
-        if let pending = pendingPatchimRow {
-            if row == pending && !vowelNow && dpadActive && koreanComposer.isComposing {
-                // row が安定 → 받침発火
-                let codaIdx = koreanCodaForRow[pending]
-                handleKoreanPatchim(codaIndex: codaIdx, codaRow: pending)
-                pendingPatchimRow = nil
-            } else {
-                // row が変わった or 母音が来た or D-pad離した → キャンセル
-                pendingPatchimRow = nil
+        // 全ボタンリリース検出
+        let allReleased = !dpadActive && !vowelNow && !ltNow
+        if allReleased {
+            allReleasedSinceSyllable = true
+        }
+
+        // D-pad 単独エッジ → 받침即発火
+        if !vowelNow && dpadActive && !prevDpadActive && allReleasedSinceSyllable {
+            if koreanComposer.isComposing {
+                let codaIdx = koreanCodaForRow[row]
+                handleKoreanPatchim(codaIndex: codaIdx, codaRow: row)
             }
         }
 
-        // 2. D-pad 単独エッジ → 받침候補を記録（まだ発火しない）
-        if !vowelNow && dpadActive && pendingPatchimRow == nil {
-            let dpadEdge = !prevDpadActive || row != prevRow
-            let consonantReleased = dpadEdge && consonantCount < prevConsonantCount
-            if dpadEdge && !consonantReleased && koreanComposer.isComposing {
-                pendingPatchimRow = row
-            }
-        }
-
-        // 3. LT エッジ（母音なし、D-pad なし） → ㅇ받침（即発火、遅延不要）
-        //    既に받침がある場合は無視（誤上書き防止）
-        if ltNow && !prevLT && !vowelNow && !dpadActive {
+        // LT エッジ（母音なし、D-pad なし） → ㅇ받침即発火
+        if ltNow && !prevLT && !vowelNow && !dpadActive && allReleasedSinceSyllable {
             if koreanComposer.isComposing && koreanComposer.currentCoda == nil {
                 let codaIdx = koreanCodaForRow[0]  // Row 0 = ㅇ
                 handleKoreanPatchim(codaIndex: codaIdx, codaRow: 0)
