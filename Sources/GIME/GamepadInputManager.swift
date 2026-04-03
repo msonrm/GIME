@@ -216,6 +216,12 @@ final class GamepadInputManager {
     private func handleSnapshot(_ gp: GamepadSnapshot) {
         let now = ProcessInfo.processInfo.systemUptime
 
+        // 確定後に1フレーム遅延された新規入力を処理
+        if let pending = pendingKanaAfterConfirm {
+            pendingKanaAfterConfirm = nil
+            inputManager.appendDirectKana(pending)
+        }
+
         let consonant = ConsonantState(
             dpadUp: gp.dpadUp,
             dpadDown: gp.dpadDown,
@@ -887,14 +893,21 @@ final class GamepadInputManager {
         pinyinSelectedIndex = 0
     }
 
+    // 確定後の新規入力を1フレーム遅延するためのバッファ
+    private var pendingKanaAfterConfirm: String?
+
     // MARK: - アクション実行
 
     private func executeAction(_ action: GamepadAction) {
         switch action {
         case .kana(let char, let replaceCount):
-            // selecting/previewing 中に新しい文字を打ったら、現在の候補を確定してから入力
+            // selecting/previewing 中に新しい文字を打ったら、現在の候補を確定し
+            // 新しい文字は次フレームに遅延する（UIKit の insertText + setMarkedText の
+            // 同一ランループ競合を回避）
             if replaceCount == 0 && (inputManager.state == .selecting || inputManager.state == .previewing) {
                 _ = inputManager.confirmAll()
+                pendingKanaAfterConfirm = char
+                return
             }
             if replaceCount > 0 {
                 inputManager.replaceDirectKana(count: replaceCount, with: char)
