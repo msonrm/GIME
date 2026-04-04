@@ -117,10 +117,10 @@ struct GamepadVisualizerView: View {
 
     private var rStickDownLabel: String {
         switch mode {
-        case .japanese: return "、。"
-        case .english: return ","
-        case .korean: return "␣,."
-        case .chineseSimplified, .chineseTraditional: return "，。"
+        case .japanese: return "、。␣"
+        case .english: return "␣.,"
+        case .korean: return "␣."
+        case .chineseSimplified, .chineseTraditional: return "，。、"
         }
     }
 
@@ -129,7 +129,7 @@ struct GamepadVisualizerView: View {
     private var rStickRightLabel: String {
         switch mode {
         case .japanese: return "ー"
-        case .english: return "␣/."
+        case .english: return "/"
         case .korean: return "ㅘㅝ"
         case .chineseSimplified, .chineseTraditional: return "␣"
         }

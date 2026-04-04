@@ -127,11 +127,9 @@ final class GamepadInputManager {
     private var prevLT = false
     private var prevRT = false
 
-    private var lastCommaTime: TimeInterval = 0
-
-    // 韓国語モード: R🕹↓ のスペース→カンマ→ピリオド トグル
-    private var lastKoreanDownTime: TimeInterval = 0
-    private var koreanDownTapCount: Int = 0
+    // R🕹↓ 多段タップ（全言語共通）
+    private var rStickDownLastTime: TimeInterval = 0
+    private var rStickDownTapCount: Int = 0
 
     private var prevRStickUp = false
     private var prevRStickDown = false
@@ -157,8 +155,6 @@ final class GamepadInputManager {
     private var lastLTReleaseTime: TimeInterval = 0
     private var ltPressTime: TimeInterval = 0
     private let longPressThreshold: TimeInterval = 0.500
-    private var lastRTSpaceTime: TimeInterval = 0
-    private var lastRTWasSpace = false
 
     // 韓国語モード状態
     private var koreanComposer = KoreanComposer()
@@ -354,31 +350,10 @@ final class GamepadInputManager {
         case .japanese:
             if rStickUp && !prevRStickUp { executeAction(.toggleDakuten) }
             if rStickRight && !prevRStickRight { executeAction(.longVowel) }
-            if rStickDown && !prevRStickDown {
-                if (now - lastCommaTime) < doubleTapWindow {
-                    executeAction(.punctuation(isSecond: true))
-                    lastCommaTime = 0
-                } else {
-                    executeAction(.punctuation(isSecond: false))
-                    lastCommaTime = now
-                }
-            }
         case .english:
             if rStickUp && !prevRStickUp { onDirectInsert?("'", 0) }
             if rStickRight && !prevRStickRight {
-                // スペース / 2度押しでピリオド置換
-                if lastRTWasSpace && (now - lastRTSpaceTime) < doubleTapWindow {
-                    onDirectInsert?(".", 1)
-                    lastRTWasSpace = false
-                } else {
-                    onDirectInsert?(" ", 0)
-                    lastRTWasSpace = true
-                    lastRTSpaceTime = now
-                }
-                englishSmartCaps = false
-            }
-            if rStickDown && !prevRStickDown {
-                onDirectInsert?(",", 0)
+                onDirectInsert?("/", 0)
                 englishSmartCaps = false
             }
         case .korean:
@@ -386,43 +361,72 @@ final class GamepadInputManager {
             if rStickUp && !prevRStickUp { handleKoreanOnsetCycle() }
             // → 複合母音（ㅏ/ㅓ付加: ㅗ→ㅘ, ㅜ→ㅝ）
             if rStickRight && !prevRStickRight { handleKoreanVowelAddAEo() }
-            // ↓ スペース→カンマ→ピリオド（トグル）
         case .chineseSimplified, .chineseTraditional:
             // → スペース（バッファあれば先に先頭候補を確定）
             if rStickRight && !prevRStickRight {
                 confirmPinyinTopCandidate()
                 onDirectInsert?(" ", 0)
             }
-            // ↓ カンマ・ピリオド
-            if rStickDown && !prevRStickDown {
-                confirmPinyinTopCandidate()
-                if (now - lastCommaTime) < doubleTapWindow {
-                    onDirectInsert?("。", 1)
-                    lastCommaTime = 0
-                } else {
-                    onDirectInsert?("，", 0)
-                    lastCommaTime = now
-                }
+        }
+
+        // R🕹↓ 句読点・空白（全言語共通の多段タップ）
+        if rStickDown && !prevRStickDown {
+            // 言語別の前処理
+            if currentMode == .korean { koreanComposer.commit() }
+            if isChinese { confirmPinyinTopCandidate() }
+            if currentMode == .english { englishSmartCaps = false }
+
+            // 多段タップ判定
+            if (now - rStickDownLastTime) < doubleTapWindow {
+                rStickDownTapCount += 1
+            } else {
+                rStickDownTapCount = 0
             }
-            if rStickDown && !prevRStickDown {
-                koreanComposer.commit()
-                if (now - lastKoreanDownTime) < doubleTapWindow {
-                    koreanDownTapCount += 1
-                    if koreanDownTapCount == 1 {
-                        // 2回目: スペース→カンマに差し替え
-                        onDirectInsert?(",", 1)
-                    } else {
-                        // 3回目: カンマ→ピリオドに差し替え
-                        onDirectInsert?(".", 1)
-                        koreanDownTapCount = 0
-                        lastKoreanDownTime = 0
-                    }
-                } else {
-                    // 1回目: スペース
-                    onDirectInsert?(" ", 0)
-                    koreanDownTapCount = 0
+            rStickDownLastTime = now
+
+            // 言語別の句読点サイクル
+            switch currentMode {
+            case .japanese:
+                // 読点(、) → 句点(。) → 空白
+                switch rStickDownTapCount {
+                case 0:
+                    if !inputManager.isEmpty { _ = inputManager.confirmAll() }
+                    onDirectInsert?("、", 0)
+                case 1: onDirectInsert?("。", 1)
+                default:
+                    onDirectInsert?(" ", 1)
+                    rStickDownTapCount = 0
+                    rStickDownLastTime = 0
                 }
-                lastKoreanDownTime = now
+            case .english:
+                // 空白 → ピリオド(.) → カンマ(,)
+                switch rStickDownTapCount {
+                case 0: onDirectInsert?(" ", 0)
+                case 1: onDirectInsert?(".", 1)
+                default:
+                    onDirectInsert?(",", 1)
+                    rStickDownTapCount = 0
+                    rStickDownLastTime = 0
+                }
+            case .korean:
+                // 空白 → ピリオド(.)
+                switch rStickDownTapCount {
+                case 0: onDirectInsert?(" ", 0)
+                default:
+                    onDirectInsert?(".", 1)
+                    rStickDownTapCount = 0
+                    rStickDownLastTime = 0
+                }
+            case .chineseSimplified, .chineseTraditional:
+                // 逗号(，) → 句号(。) → 顿号(、)
+                switch rStickDownTapCount {
+                case 0: onDirectInsert?("，", 0)
+                case 1: onDirectInsert?("。", 1)
+                default:
+                    onDirectInsert?("、", 1)
+                    rStickDownTapCount = 0
+                    rStickDownLastTime = 0
+                }
             }
         }
 
@@ -541,7 +545,8 @@ final class GamepadInputManager {
             englishShiftNext = false
             englishCapsLock = false
             englishSmartCaps = false
-            lastRTWasSpace = false
+            rStickDownTapCount = 0
+            rStickDownLastTime = 0
             koreanComposer.commit()
             patchimRollbackActive = false
             allReleasedSinceSyllable = true
@@ -1039,13 +1044,6 @@ final class GamepadInputManager {
             }
         case .longVowel:
             inputManager.appendDirectKana("ー")
-        case .punctuation(let isSecond):
-            if isSecond {
-                onDirectInsert?("。", 1)
-            } else {
-                if !inputManager.isEmpty { _ = inputManager.confirmAll() }
-                onDirectInsert?("、", 0)
-            }
         case .convert:
             if inputManager.state == .composing {
                 inputManager.requestConversion()

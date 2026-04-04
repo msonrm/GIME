@@ -146,8 +146,6 @@ enum GamepadAction {
     case confirmOrNewline
     /// 長音「ー」
     case longVowel
-    /// 句読点（isSecond = true で「。」に差し替え）
-    case punctuation(isSecond: Bool)
     /// 変換開始 / 次の候補群（左スティック↓）
     case convert
     /// 次の候補（左スティック→）
