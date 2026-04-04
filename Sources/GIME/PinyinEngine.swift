@@ -113,7 +113,7 @@ final class PinyinEngine {
     }
 
     /// abbreviated key で候補を検索する
-    func lookup(_ abbreviation: String, limit: Int = 9) -> [PinyinCandidate] {
+    func lookup(_ abbreviation: String, limit: Int = 30) -> [PinyinCandidate] {
         guard !abbreviation.isEmpty else { return [] }
         let key = abbreviation.lowercased()
 

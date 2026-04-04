@@ -72,10 +72,10 @@ struct ContentView: View {
                             additionalCandidates: [],
                             isAdditionalCandidateSelected: false,
                             selectedAdditionalCandidateIndex: 0,
-                            candidates: gp.pinyinCandidates.map {
+                            candidates: gp.visiblePinyinCandidates.map {
                                 "\($0.word)  \($0.reading)"
                             },
-                            selectedIndex: gp.pinyinSelectedIndex,
+                            selectedIndex: gp.pinyinSelectedIndexInWindow,
                             font: .system(size: 28),
                             fontSize: 28,
                             anchor: caretRect,

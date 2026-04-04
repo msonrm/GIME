@@ -174,6 +174,23 @@ final class GamepadInputManager {
     private(set) var pinyinSelectedIndex: Int = 0
     var pinyinEngine: PinyinEngine?
 
+    /// スライディングウィンドウの表示開始位置
+    private(set) var pinyinWindowStart: Int = 0
+    /// ウィンドウサイズ（CandidatePopup と同じ最大9件）
+    private static let pinyinWindowSize = 9
+
+    /// 現在のウィンドウ内に表示する候補
+    var visiblePinyinCandidates: [PinyinCandidate] {
+        guard !pinyinCandidates.isEmpty else { return [] }
+        let end = min(pinyinWindowStart + Self.pinyinWindowSize, pinyinCandidates.count)
+        return Array(pinyinCandidates[pinyinWindowStart..<end])
+    }
+
+    /// ウィンドウ内での選択位置（0-based）
+    var pinyinSelectedIndexInWindow: Int {
+        pinyinSelectedIndex - pinyinWindowStart
+    }
+
     // MARK: - Init
 
     init(inputManager: InputManager) {
@@ -434,12 +451,24 @@ final class GamepadInputManager {
         else { leftStickDirection = .neutral }
 
         if isChinese && !pinyinCandidates.isEmpty {
-            // 中国語候補選択中: ↑↓ で候補移動
+            // 中国語候補選択中: ↑↓ で候補移動（スライディングウィンドウ）
             if lStickDown && !prevLStickDown {
-                pinyinSelectedIndex = min(pinyinSelectedIndex + 1, pinyinCandidates.count - 1)
+                if pinyinSelectedIndex < pinyinCandidates.count - 1 {
+                    pinyinSelectedIndex += 1
+                    // ウィンドウ下端を超えたらスライド
+                    if pinyinSelectedIndex >= pinyinWindowStart + Self.pinyinWindowSize {
+                        pinyinWindowStart = pinyinSelectedIndex - Self.pinyinWindowSize + 1
+                    }
+                }
             }
             if lStickUp && !prevLStickUp {
-                pinyinSelectedIndex = max(pinyinSelectedIndex - 1, 0)
+                if pinyinSelectedIndex > 0 {
+                    pinyinSelectedIndex -= 1
+                    // ウィンドウ上端を超えたらスライド
+                    if pinyinSelectedIndex < pinyinWindowStart {
+                        pinyinWindowStart = pinyinSelectedIndex
+                    }
+                }
             }
             // ←→ はカーソル移動
             if lStickRight && !prevLStickRight { onCursorMove?(1) }
@@ -926,6 +955,7 @@ final class GamepadInputManager {
     /// ピンインバッファに基づいて候補を更新する
     private func updatePinyinCandidates() {
         pinyinSelectedIndex = 0
+        pinyinWindowStart = 0
         pinyinCandidates = pinyinEngine?.lookup(pinyinBuffer) ?? []
     }
 
@@ -955,6 +985,7 @@ final class GamepadInputManager {
         zhuyinDisplayBuffer = ""
         pinyinCandidates = []
         pinyinSelectedIndex = 0
+        pinyinWindowStart = 0
     }
 
     // 確定後の新規入力を1フレーム遅延するためのバッファ
