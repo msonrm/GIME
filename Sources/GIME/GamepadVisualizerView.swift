@@ -472,6 +472,59 @@ private struct GamepadSettingsSheet: View {
                 } footer: {
                     Text("ハンドルをドラッグして切り替え順を変更できます。")
                 }
+                // このアプリについて
+                Section {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("GIME")
+                            .font(.headline)
+                        Text(Self.versionString)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("© 2024-2026 Masao Narumi")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("このアプリについて")
+                }
+
+                // オープンソースライセンス
+                Section {
+                    DisclosureGroup("AzooKeyKanaKanjiConverter") {
+                        Text("MIT License — Copyright (c) 2023 Miwa / Ensan")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        DisclosureGroup("ライセンス全文") {
+                            Text(Self.mitLicenseText)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
+                        .font(.caption)
+                    }
+                    .font(.subheadline)
+
+                    DisclosureGroup("CC-CEDICT") {
+                        Text("Creative Commons Attribution-ShareAlike 4.0 International")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("簡体字辞書データの語彙・ピンイン情報に使用")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.subheadline)
+
+                    DisclosureGroup("libchewing") {
+                        Text("LGPL v2.1 — libchewing contributors")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("繁體字辞書データの語彙・注音情報に使用")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.subheadline)
+                } header: {
+                    Text("オープンソースライセンス")
+                }
             }
             .environment(\.editMode, .constant(.active))
             .navigationTitle("設定")
@@ -484,4 +537,36 @@ private struct GamepadSettingsSheet: View {
         }
         .presentationDetents([.medium, .large])
     }
+
+    // MARK: - 定数
+
+    private static var versionString: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"
+        return "v\(version) (\(build))"
+    }
+
+    private static let mitLicenseText = """
+        MIT License
+
+        Copyright (c) 2023 Miwa / Ensan
+
+        Permission is hereby granted, free of charge, to any person obtaining a copy \
+        of this software and associated documentation files (the "Software"), to deal \
+        in the Software without restriction, including without limitation the rights \
+        to use, copy, modify, merge, publish, distribute, sublicense, and/or sell \
+        copies of the Software, and to permit persons to whom the Software is \
+        furnished to do so, subject to the following conditions:
+
+        The above copyright notice and this permission notice shall be included in all \
+        copies or substantial portions of the Software.
+
+        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR \
+        IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, \
+        FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE \
+        AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER \
+        LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, \
+        OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE \
+        SOFTWARE.
+        """
 }
