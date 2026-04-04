@@ -579,15 +579,11 @@ final class GamepadInputManager {
             let vowelChanged = vowel != prevVowel
 
             if prevVowel == nil {
-                // selecting/previewing 中は confirmAll → 遅延挿入になるため
-                // eagerChar を設定しない（まだ composingText に存在しない）
-                let wasDeferred = inputManager.state == .selecting || inputManager.state == .previewing
+                // confirmAllAsPrefix で同期的に挿入するため、常に eagerChar を設定
                 executeAction(.kana(char))
-                if !wasDeferred {
-                    eagerChar = char
-                    eagerCharLen = 1
-                    eagerTime = now
-                }
+                eagerChar = char
+                eagerCharLen = 1
+                eagerTime = now
             } else if rowChanged || vowelChanged {
                 let consonantReleased = rowChanged && consonantCount < prevConsonantCount
                 if !consonantReleased {
@@ -997,14 +993,12 @@ final class GamepadInputManager {
     private func executeAction(_ action: GamepadAction) {
         switch action {
         case .kana(let char, let replaceCount):
-            // selecting/previewing 中に新しい文字を打ったら、現在の候補を確定し
-            // 新しい文字は次ランループに遅延する（UIKit の unmarkText + setMarkedText の
-            // 同一ランループ競合を回避）
+            // selecting/previewing 中に新しい文字を打ったら、現在の候補を confirmedPrefix に
+            // 蓄えて composition を維持する。unmarkText() を経由しないため UIKit の
+            // 内部クリーンアップと setMarkedText() の競合が発生しない。
             if replaceCount == 0 && (inputManager.state == .selecting || inputManager.state == .previewing) {
-                _ = inputManager.confirmAll()
-                DispatchQueue.main.async { [weak self] in
-                    self?.inputManager.appendDirectKana(char)
-                }
+                inputManager.confirmAllAsPrefix()
+                inputManager.appendDirectKana(char)
                 return
             }
             if replaceCount > 0 {
