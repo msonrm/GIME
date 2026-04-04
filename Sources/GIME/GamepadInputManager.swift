@@ -233,12 +233,6 @@ final class GamepadInputManager {
     private func handleSnapshot(_ gp: GamepadSnapshot) {
         let now = ProcessInfo.processInfo.systemUptime
 
-        // 確定後に1フレーム遅延された新規入力を処理
-        if let pending = pendingKanaAfterConfirm {
-            pendingKanaAfterConfirm = nil
-            inputManager.appendDirectKana(pending)
-        }
-
         let consonant = ConsonantState(
             dpadUp: gp.dpadUp,
             dpadDown: gp.dpadDown,
@@ -585,10 +579,15 @@ final class GamepadInputManager {
             let vowelChanged = vowel != prevVowel
 
             if prevVowel == nil {
+                // selecting/previewing 中は confirmAll → 遅延挿入になるため
+                // eagerChar を設定しない（まだ composingText に存在しない）
+                let wasDeferred = inputManager.state == .selecting || inputManager.state == .previewing
                 executeAction(.kana(char))
-                eagerChar = char
-                eagerCharLen = 1
-                eagerTime = now
+                if !wasDeferred {
+                    eagerChar = char
+                    eagerCharLen = 1
+                    eagerTime = now
+                }
             } else if rowChanged || vowelChanged {
                 let consonantReleased = rowChanged && consonantCount < prevConsonantCount
                 if !consonantReleased {
@@ -993,20 +992,19 @@ final class GamepadInputManager {
         pinyinWindowStart = 0
     }
 
-    // 確定後の新規入力を1フレーム遅延するためのバッファ
-    private var pendingKanaAfterConfirm: String?
-
     // MARK: - アクション実行
 
     private func executeAction(_ action: GamepadAction) {
         switch action {
         case .kana(let char, let replaceCount):
             // selecting/previewing 中に新しい文字を打ったら、現在の候補を確定し
-            // 新しい文字は次フレームに遅延する（UIKit の insertText + setMarkedText の
+            // 新しい文字は次ランループに遅延する（UIKit の unmarkText + setMarkedText の
             // 同一ランループ競合を回避）
             if replaceCount == 0 && (inputManager.state == .selecting || inputManager.state == .previewing) {
                 _ = inputManager.confirmAll()
-                pendingKanaAfterConfirm = char
+                DispatchQueue.main.async { [weak self] in
+                    self?.inputManager.appendDirectKana(char)
+                }
                 return
             }
             if replaceCount > 0 {
