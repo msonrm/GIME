@@ -86,14 +86,6 @@ struct GamepadVisualizerView: View {
         }
     }
 
-    private var faceCenterLabel: String {
-        switch mode {
-        case .english, .chineseSimplified, .chineseTraditional: return "文字"
-        case .korean: return "모음"
-        case .japanese: return "母音"
-        }
-    }
-
     private var modeBadgeColor: Color {
         switch mode {
         case .japanese: return .pink
@@ -309,10 +301,7 @@ struct GamepadVisualizerView: View {
             }
             GridRow {
                 faceButton(label: faceChars[1], pressed: gamepadInput.pressedButtons.contains("X"))
-                Text(faceCenterLabel)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.quaternary)
-                    .frame(width: 48, height: 48)
+                Color.clear.frame(width: 48, height: 48)
                 faceButton(label: faceChars[3], pressed: gamepadInput.pressedButtons.contains("B"))
             }
             GridRow {
@@ -341,10 +330,7 @@ struct GamepadVisualizerView: View {
                 }
                 GridRow {
                     stickButton(label: rStickLeftLabel, pressed: gamepadInput.pressedButtons.contains("rStickLeft"))
-                    Text("R")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.quaternary)
-                        .frame(width: stickSize, height: stickSize)
+                    Color.clear.frame(width: stickSize, height: stickSize)
                     stickButton(label: rStickRightLabel, pressed: gamepadInput.pressedButtons.contains("rStickRight"))
                 }
                 GridRow {
