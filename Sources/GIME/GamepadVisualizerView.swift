@@ -69,7 +69,7 @@ struct GamepadVisualizerView: View {
             if gamepadInput.englishShiftNext { return "Shift" }
             return "shift"
         case .korean: return "ㅇ"
-        case .chineseSimplified, .chineseTraditional: return "—"
+        case .chineseSimplified, .chineseTraditional: return ""
         case .japanese: return "拗音"
         }
     }
