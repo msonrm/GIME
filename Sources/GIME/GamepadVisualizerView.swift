@@ -6,6 +6,7 @@ struct GamepadVisualizerView: View {
     let gamepadInput: GamepadInputManager
 
     @State private var showSettings = false
+    @State private var isCollapsed = false
 
     private var mode: GamepadInputMode { gamepadInput.currentMode }
 
@@ -129,7 +130,7 @@ struct GamepadVisualizerView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            // ヘッダー: 言語バッジ（左）+ 設定アイコン（右）
+            // ヘッダー: 言語バッジ（左）+ 折りたたみ/設定（右）
             HStack {
                 Text(mode.label)
                     .font(.system(size: 14, weight: .semibold))
@@ -152,6 +153,16 @@ struct GamepadVisualizerView: View {
                 Spacer()
 
                 Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isCollapsed.toggle()
+                    }
+                } label: {
+                    Image(systemName: isCollapsed ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+
+                Button {
                     showSettings = true
                 } label: {
                     Image(systemName: "gearshape.fill")
@@ -161,55 +172,57 @@ struct GamepadVisualizerView: View {
             }
             .padding(.horizontal, 4)
 
-            HStack(spacing: 24) {
-                VStack(spacing: 8) {
-                    HStack(spacing: 6) {
-                        shoulderButton(
-                            char: ltLabel,
-                            name: "LT",
-                            pressed: gamepadInput.pressedButtons.contains("LT")
-                        )
-                        shoulderButton(
-                            char: lbLabel,
-                            name: "LB",
-                            pressed: gamepadInput.pressedButtons.contains("LB")
-                        )
+            if !isCollapsed {
+                HStack(spacing: 24) {
+                    VStack(spacing: 8) {
+                        HStack(spacing: 6) {
+                            shoulderButton(
+                                char: ltLabel,
+                                name: "LT",
+                                pressed: gamepadInput.pressedButtons.contains("LT")
+                            )
+                            shoulderButton(
+                                char: lbLabel,
+                                name: "LB",
+                                pressed: gamepadInput.pressedButtons.contains("LB")
+                            )
+                        }
+                        dpadGrid
                     }
-                    dpadGrid
-                }
 
-                // 中央: プレビュー
-                VStack(spacing: 4) {
-                    Text(currentRowNames[gamepadInput.activeRow])
-                        .font(.system(size: 14))
-                        .foregroundStyle(.secondary)
-                    Text(gamepadInput.previewChar ?? "　")
-                        .font(.system(size: 56, weight: .bold))
-                        .foregroundStyle(gamepadInput.previewChar != nil ? Color.accentColor : Color(.systemGray4))
-                        .frame(minWidth: 70)
-                }
-
-                // 右側: RB/RT + フェイスボタン（RB=内側, RT=外側）
-                VStack(spacing: 8) {
-                    HStack(spacing: 6) {
-                        shoulderButton(
-                            char: rbLabel,
-                            name: "RB",
-                            pressed: gamepadInput.pressedButtons.contains("RB")
-                        )
-                        shoulderButton(
-                            char: rtLabel,
-                            name: "RT",
-                            pressed: gamepadInput.pressedButtons.contains("RT")
-                        )
+                    // 中央: プレビュー
+                    VStack(spacing: 4) {
+                        Text(currentRowNames[gamepadInput.activeRow])
+                            .font(.system(size: 14))
+                            .foregroundStyle(.secondary)
+                        Text(gamepadInput.previewChar ?? "　")
+                            .font(.system(size: 56, weight: .bold))
+                            .foregroundStyle(gamepadInput.previewChar != nil ? Color.accentColor : Color(.systemGray4))
+                            .frame(minWidth: 70)
                     }
-                    faceButtonGrid
+
+                    // 右側: RB/RT + フェイスボタン（RB=内側, RT=外側）
+                    VStack(spacing: 8) {
+                        HStack(spacing: 6) {
+                            shoulderButton(
+                                char: rbLabel,
+                                name: "RB",
+                                pressed: gamepadInput.pressedButtons.contains("RB")
+                            )
+                            shoulderButton(
+                                char: rtLabel,
+                                name: "RT",
+                                pressed: gamepadInput.pressedButtons.contains("RT")
+                            )
+                        }
+                        faceButtonGrid
+                    }
+                    // 右スティック（コンパクト十字型）
+                    rightStickGrid
                 }
-                // 右スティック（コンパクト十字型）
-                rightStickGrid
+                .padding()
+                .background(.background, in: RoundedRectangle(cornerRadius: 16))
             }
-            .padding()
-            .background(.background, in: RoundedRectangle(cornerRadius: 16))
         }
         .sheet(isPresented: $showSettings) {
             GamepadSettingsSheet(
