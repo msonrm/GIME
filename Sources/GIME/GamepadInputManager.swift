@@ -67,6 +67,7 @@ final class GamepadInputManager {
     private(set) var pressedButtons: Set<String> = []
     private(set) var leftStickDirection: StickDirection = .neutral
     private(set) var currentMode: GamepadInputMode = .japanese
+    private(set) var isTextOperationMode = false
 
     /// 中国語モード判定（簡体/繁体共通のロジック用）
     var isChinese: Bool {
@@ -105,6 +106,26 @@ final class GamepadInputManager {
     /// Start+Back 同時押しコールバック（テキスト全文を共有）
     var onShareText: (() -> Void)?
 
+    // MARK: - テキスト操作モード コールバック
+
+    /// 文フォーカス移動（←↑=前文頭、→↓=次文頭）
+    /// - Parameter direction: 負=前、正=次
+    var onSentenceFocusMove: ((_ direction: Int) -> Void)?
+
+    /// 文の前後移動（RT+左スティック: カーソル位置の文を隣接文と入れ替え）
+    /// - Parameter direction: 負=前へ、正=後ろへ
+    var onSwapSentence: ((_ direction: Int) -> Void)?
+
+    /// スマート選択 拡大（D-pad →。文レベルまで）
+    var onSmartSelectExpand: (() -> Void)?
+
+    /// スマート選択 縮小（D-pad ←）
+    var onSmartSelectShrink: (() -> Void)?
+
+    /// 選択範囲を文単位で拡張（D-pad ↑=前方向、↓=後方向）
+    /// - Parameter direction: 負=前、正=後
+    var onExtendSelectionBySentence: ((_ direction: Int) -> Void)?
+
     // MARK: - Dependencies
 
     let inputManager: InputManager
@@ -141,6 +162,10 @@ final class GamepadInputManager {
     private var prevLStickLeft = false
     private var prevLStickRight = false
 
+    private var prevDpadUp = false
+    private var prevDpadDown = false
+    private var prevDpadLeft = false
+    private var prevDpadRight = false
     private var prevBack = false
     private var startBackComboFired = false
     private var prevLS = false
@@ -316,6 +341,38 @@ final class GamepadInputManager {
         }
         if previewChar != newPreview { previewChar = newPreview }
 
+        // === 左スティック方向の解決（テキスト操作モードと通常モードの両方で使用） ===
+        let lsX = gp.leftStickX
+        let lsY = gp.leftStickY
+        let lAbsX = abs(lsX)
+        let lAbsY = abs(lsY)
+        let lMaxAxis = max(lAbsX, lAbsY)
+        let lDominant: String? = lMaxAxis > stickThreshold ? (lAbsX > lAbsY ? "x" : "y") : nil
+
+        let lStickRight = lDominant == "x" && lsX > 0
+        let lStickLeft = lDominant == "x" && lsX < 0
+        let lStickUp = lDominant == "y" && lsY > 0
+        let lStickDown = lDominant == "y" && lsY < 0
+
+        // 左スティック方向の UI 状態更新
+        let lDir: StickDirection = {
+            if lStickUp { return .up }
+            if lStickDown { return .down }
+            if lStickLeft { return .left }
+            if lStickRight { return .right }
+            return .neutral
+        }()
+        if leftStickDirection != lDir { leftStickDirection = lDir }
+
+        // === テキスト操作モード ===
+        if isTextOperationMode {
+            handleTextOperationMode(gp, rtNow: rtNow,
+                                    lStickUp: lStickUp, lStickDown: lStickDown,
+                                    lStickLeft: lStickLeft, lStickRight: lStickRight)
+            // D-pad / 左スティック / 右スティックの入力処理をスキップし、
+            // Back / LS / RS / Start ボタンの処理へ進む
+        } else {
+
         // === モード別の文字入力・トリガー処理 ===
         switch currentMode {
         case .japanese:
@@ -357,10 +414,10 @@ final class GamepadInputManager {
             // → 複合母音（ㅏ/ㅓ付加: ㅗ→ㅘ, ㅜ→ㅝ）
             if rStickRight && !prevRStickRight { handleKoreanVowelAddAEo() }
         case .chineseSimplified, .chineseTraditional:
-            // → スペース（バッファあれば先に先頭候補を確定）
+            // → 顿号（バッファあれば先に先頭候補を確定）
             if rStickRight && !prevRStickRight {
                 confirmPinyinTopCandidate()
-                onDirectInsert?(" ", 0)
+                onDirectInsert?("、", 0)
             }
         }
 
@@ -413,44 +470,19 @@ final class GamepadInputManager {
                     rStickDownLastTime = 0
                 }
             case .chineseSimplified, .chineseTraditional:
-                // 逗号(，) → 句号(。) → 顿号(、)
+                // 逗号(，) → 句号(。) → 空白
                 switch rStickDownTapCount {
                 case 0: onDirectInsert?("，", 0)
                 case 1: onDirectInsert?("。", 1)
                 default:
-                    onDirectInsert?("、", 1)
+                    onDirectInsert?(" ", 1)
                     rStickDownTapCount = 0
                     rStickDownLastTime = 0
                 }
             }
         }
 
-        prevRStickUp = rStickUp
-        prevRStickDown = rStickDown
-        prevRStickLeft = rStickLeft
-        prevRStickRight = rStickRight
-
-        // === 左スティック ===
-        let lsX = gp.leftStickX
-        let lsY = gp.leftStickY
-        let lAbsX = abs(lsX)
-        let lAbsY = abs(lsY)
-        let lMaxAxis = max(lAbsX, lAbsY)
-        let lDominant: String? = lMaxAxis > stickThreshold ? (lAbsX > lAbsY ? "x" : "y") : nil
-
-        let lStickRight = lDominant == "x" && lsX > 0
-        let lStickLeft = lDominant == "x" && lsX < 0
-        let lStickUp = lDominant == "y" && lsY > 0
-        let lStickDown = lDominant == "y" && lsY < 0
-
-        let lStickDir: StickDirection =
-            if lStickDown { .down }
-            else if lStickRight { .right }
-            else if lStickLeft { .left }
-            else if lStickUp { .up }
-            else { .neutral }
-        if leftStickDirection != lStickDir { leftStickDirection = lStickDir }
-
+        // === 左スティック（方向の解決は上で実施済み） ===
         if isChinese && !pinyinCandidates.isEmpty {
             // 中国語候補選択中: ↑↓ で候補移動（スライディングウィンドウ）
             if lStickDown && !prevLStickDown {
@@ -493,16 +525,30 @@ final class GamepadInputManager {
             if lStickLeft && !prevLStickLeft { executeAction(.shrinkSegment) }
         }
 
+        } // end of !isTextOperationMode
+
+        // --- 前フレーム状態更新（共通: スティック・D-pad） ---
+        prevRStickUp = rStickUp
+        prevRStickDown = rStickDown
+        prevRStickLeft = rStickLeft
+        prevRStickRight = rStickRight
         prevLStickUp = lStickUp
         prevLStickDown = lStickDown
         prevLStickLeft = lStickLeft
         prevLStickRight = lStickRight
 
-        // === Back=スペース, LS=確定/改行, RS=キャンセル ===
-        if currentMode == .japanese {
-            if prevBack && !gp.back { executeAction(.space) }
-        } else {
-            if prevBack && !gp.back {
+        // === Back=スペース/テキスト操作モードトグル, LS=確定/改行, RS=キャンセル ===
+        if prevBack && !gp.back && !startBackComboFired {
+            let isIdle = inputManager.isEmpty && (!isChinese || pinyinBuffer.isEmpty)
+            if isTextOperationMode {
+                // テキスト操作モード中: Back で解除
+                isTextOperationMode = false
+            } else if isIdle {
+                // idle 時: テキスト操作モードに突入
+                isTextOperationMode = true
+            } else if currentMode == .japanese {
+                executeAction(.space)
+            } else {
                 if currentMode == .korean { koreanComposer.commit() }
                 if isChinese { confirmPinyinTopCandidate() }
                 onDirectInsert?(" ", 0)
@@ -561,10 +607,59 @@ final class GamepadInputManager {
         prevVowel = vowelNow ? vowel : nil
         prevLT = ltNow
         prevRT = rtNow
+        prevDpadUp = gp.dpadUp
+        prevDpadDown = gp.dpadDown
+        prevDpadLeft = gp.dpadLeft
+        prevDpadRight = gp.dpadRight
         prevBack = gp.back
         prevLS = gp.lsClick
         prevRS = gp.rsClick
         prevStart = gp.start
+    }
+
+    // MARK: - テキスト操作モード
+
+    /// テキスト操作モードの入力処理
+    ///
+    /// - 左スティック: 文フォーカス移動（←↑=前文頭、→↓=次文頭）
+    /// - RT + 左スティック: カーソル位置の文を前後に移動
+    /// - D-pad ←→: スマート選択 縮小/拡大（文レベルまで）
+    /// - D-pad ↑↓: 選択範囲を文単位で前/後に拡張
+    private func handleTextOperationMode(_ gp: GamepadSnapshot, rtNow: Bool,
+                                         lStickUp: Bool, lStickDown: Bool,
+                                         lStickLeft: Bool, lStickRight: Bool) {
+        // 左スティック: 文フォーカス移動 / RT 押しながらで文の入れ替え
+        if rtNow {
+            // RT + 左スティック: 文の前後移動
+            if (lStickLeft && !prevLStickLeft) || (lStickUp && !prevLStickUp) {
+                onSwapSentence?(-1)
+            }
+            if (lStickRight && !prevLStickRight) || (lStickDown && !prevLStickDown) {
+                onSwapSentence?(1)
+            }
+        } else {
+            // 左スティック単体: 文フォーカス移動
+            if (lStickLeft && !prevLStickLeft) || (lStickUp && !prevLStickUp) {
+                onSentenceFocusMove?(-1)
+            }
+            if (lStickRight && !prevLStickRight) || (lStickDown && !prevLStickDown) {
+                onSentenceFocusMove?(1)
+            }
+        }
+
+        // D-pad: スマート選択・文単位拡張
+        if gp.dpadRight && !prevDpadRight {
+            onSmartSelectExpand?()
+        }
+        if gp.dpadLeft && !prevDpadLeft {
+            onSmartSelectShrink?()
+        }
+        if gp.dpadUp && !prevDpadUp {
+            onExtendSelectionBySentence?(-1)
+        }
+        if gp.dpadDown && !prevDpadDown {
+            onExtendSelectionBySentence?(1)
+        }
     }
 
     // MARK: - 日本語入力

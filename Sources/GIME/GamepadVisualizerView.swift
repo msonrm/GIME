@@ -113,7 +113,7 @@ struct GamepadVisualizerView: View {
         case .japanese: return "、。␣"
         case .english: return "␣.,"
         case .korean: return "␣."
-        case .chineseSimplified, .chineseTraditional: return "，。、"
+        case .chineseSimplified, .chineseTraditional: return "，。␣"
         }
     }
 
@@ -124,7 +124,7 @@ struct GamepadVisualizerView: View {
         case .japanese: return "ー"
         case .english: return "/"
         case .korean: return "ㅘㅝ"
-        case .chineseSimplified, .chineseTraditional: return "␣"
+        case .chineseSimplified, .chineseTraditional: return "、"
         }
     }
 
@@ -139,6 +139,17 @@ struct GamepadVisualizerView: View {
                     .background(modeBadgeColor)
                     .foregroundStyle(.white)
                     .clipShape(Capsule())
+
+                // テキスト操作モードバッジ
+                if gamepadInput.isTextOperationMode {
+                    Text("テキスト操作")
+                        .font(.system(size: 12, weight: .semibold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(.orange)
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
+                }
 
                 // 中国語モード: バッファ表示（繁体字は注音、簡体字はピンイン）
                 if (mode == .chineseSimplified || mode == .chineseTraditional) && !gamepadInput.pinyinBuffer.isEmpty {
