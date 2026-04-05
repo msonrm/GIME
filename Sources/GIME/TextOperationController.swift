@@ -19,6 +19,8 @@ final class TextOperationController {
 
     // MARK: - Internal State
 
+    /// フォーカス rect 更新用: 最後にフォーカスしたカーソル位置
+    private var lastFocusCursor: Int?
     private var smartSelection = SmartSelectionState()
     /// D-pad ↑↓ の文単位選択: 伸長方向（-1=後方、0=なし、1=前方）
     private var sentenceSelectionDirection: Int = 0
@@ -60,7 +62,7 @@ final class TextOperationController {
         let newCursor = newIdx.utf16Offset(in: text)
         smartSelection.reset()
         sentenceSelectionDirection = 0
-        updateFocusRects(text: text, cursor: newCursor)
+        lastFocusCursor = newCursor
         return CursorResult(cursor: newCursor, selection: 0)
     }
 
@@ -105,7 +107,7 @@ final class TextOperationController {
             newCursor = baseOffset + nextSentence.utf16.count
         }
         resetSelectionState()
-        deferFocusRectsUpdate(text: text, cursor: newCursor)
+        lastFocusCursor = newCursor
         return TextResult(text: text, cursor: newCursor)
     }
 
@@ -115,6 +117,7 @@ final class TextOperationController {
     func smartSelectExpand(text: String, cursor: Int) -> CursorResult? {
         guard !text.isEmpty else { return nil }
         sentenceSelectionDirection = 0
+        clearFocus()
         let idx = safeIndex(cursor, in: text)
         guard let range = smartSelection.expand(in: text, cursor: idx) else { return nil }
         if smartSelection.level > .sentence {
@@ -129,6 +132,7 @@ final class TextOperationController {
     /// スマート選択を1段階縮小する
     func smartSelectShrink(text: String, cursor: Int) -> CursorResult {
         sentenceSelectionDirection = 0
+        clearFocus()
         guard !text.isEmpty else { return CursorResult(cursor: cursor, selection: 0) }
         if let range = smartSelection.shrink(in: text) {
             let newCursor = range.lowerBound.utf16Offset(in: text)
@@ -146,6 +150,7 @@ final class TextOperationController {
     /// D-pad ↑↓ による文単位選択（伸ばす/縮める）
     func extendSelectionBySentence(direction: Int, text: String,
                                    cursor: Int, selection: Int) -> CursorResult {
+        clearFocus()
         guard !text.isEmpty else { return CursorResult(cursor: cursor, selection: selection) }
         let textLen = text.utf16.count
 
@@ -180,29 +185,39 @@ final class TextOperationController {
 
     /// テキスト操作モードに突入
     func onModeEnter(text: String, cursor: Int) {
+        lastFocusCursor = cursor
         updateFocusRects(text: text, cursor: cursor)
     }
 
     /// テキスト操作モードから離脱
     func onModeExit() {
         focusedSentenceRects = []
+        lastFocusCursor = nil
         sentenceSelectionDirection = 0
         smartSelection.reset()
+    }
+
+    /// 毎フレーム呼び出してフォーカス rect をスクロールに追従させる
+    func refreshFocusRectsIfNeeded(text: String, cursor: Int) {
+        guard let focusCursor = lastFocusCursor else { return }
+        // カーソルが変わっていたら更新（RB+スティックでのカーソル移動追従）
+        if focusCursor != cursor {
+            lastFocusCursor = cursor
+        }
+        updateFocusRects(text: text, cursor: lastFocusCursor ?? cursor)
     }
 
     // MARK: - Private
 
+    /// フォーカスオーバーレイを解除する
+    private func clearFocus() {
+        lastFocusCursor = nil
+        focusedSentenceRects = []
+    }
+
     private func resetSelectionState() {
         smartSelection.reset()
         sentenceSelectionDirection = 0
-    }
-
-    private func deferFocusRectsUpdate(text: String, cursor: Int) {
-        let t = text
-        let c = cursor
-        DispatchQueue.main.async { [self] in
-            updateFocusRects(text: t, cursor: c)
-        }
     }
 
     private func safeIndex(_ cursor: Int, in text: String) -> String.Index {

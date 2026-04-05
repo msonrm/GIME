@@ -126,6 +126,9 @@ final class GamepadInputManager {
     /// - Parameter direction: 負=前、正=後
     var onExtendSelectionBySentence: ((_ direction: Int) -> Void)?
 
+    /// テキスト操作モード中に毎フレーム呼ばれるコールバック（フォーカス rect 更新用）
+    var onTextOperationFrame: (() -> Void)?
+
     // MARK: - Dependencies
 
     let inputManager: InputManager
@@ -371,6 +374,7 @@ final class GamepadInputManager {
 
         // === テキスト操作モード ===
         if isTextOperationMode {
+            onTextOperationFrame?()
             handleTextOperationMode(gp, rtNow: rtNow,
                                     lStickUp: lStickUp, lStickDown: lStickDown,
                                     lStickLeft: lStickLeft, lStickRight: lStickRight)

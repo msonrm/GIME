@@ -227,6 +227,9 @@ struct ContentView: View {
                 cursorLocation = r.cursor
                 selectionLength = r.selection
             }
+            gp.onTextOperationFrame = {
+                ctrl.refreshFocusRectsIfNeeded(text: text, cursor: cursorLocation)
+            }
             pinyinEngine.load()
             gp.pinyinEngine = pinyinEngine
             gamepadInput = gp
