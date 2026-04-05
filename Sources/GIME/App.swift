@@ -25,7 +25,8 @@ struct ContentView: View {
     @State private var cursorLocation: Int = 0
     @State private var selectionLength: Int = 0
     @State private var caretRect: CGRect = .zero
-    @State private var smartSelection = SmartSelectionState()
+    private let textRangeRectsProvider = TextRangeRectsProvider()
+    @State private var textOpController: TextOperationController?
 
     /// エディタ表示スタイル（動画撮影用に大きめフォント）
     private let editorStyle = EditorStyle(
@@ -47,6 +48,7 @@ struct ContentView: View {
                     onCaretRectChange: { rect in
                         caretRect = rect
                     },
+                    textRangeRectsProvider: textRangeRectsProvider,
                     hidesSoftwareKeyboard: true
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -82,6 +84,14 @@ struct ContentView: View {
                             anchor: caretRect,
                             bounds: geo.size
                         )
+                    }
+                }
+                .overlay {
+                    // フォーカスオーバーレイ（テキスト操作モード中、フォーカス文以外を暗く）
+                    if let gp = gamepadInput, gp.isTextOperationMode,
+                       let rects = textOpController?.focusedSentenceRects, !rects.isEmpty {
+                        SentenceFocusOverlay(cutoutRects: rects)
+                            .allowsHitTesting(false)
                     }
                 }
 
@@ -183,95 +193,39 @@ struct ContentView: View {
                 selectionLength = 0
             }
             // MARK: テキスト操作モード コールバック
+            let ctrl = TextOperationController(rectsProvider: textRangeRectsProvider)
+            textOpController = ctrl
+
             gp.onSentenceFocusMove = { direction in
-                guard !text.isEmpty else { return }
-                let idx = String.Index(utf16Offset: min(cursorLocation, text.utf16.count), in: text)
-                let newIdx: String.Index
-                if direction < 0 {
-                    newIdx = SentenceBoundary.previousSentenceStart(in: text, before: idx)
-                } else {
-                    newIdx = SentenceBoundary.nextSentenceEnd(in: text, after: idx)
-                }
-                cursorLocation = newIdx.utf16Offset(in: text)
-                selectionLength = 0
-                smartSelection.reset()
+                let r = ctrl.sentenceFocusMove(direction: direction, text: text, cursor: cursorLocation)
+                cursorLocation = r.cursor
+                selectionLength = r.selection
             }
             gp.onSwapSentence = { direction in
-                guard !text.isEmpty else { return }
-                let idx = String.Index(utf16Offset: min(cursorLocation, text.utf16.count), in: text)
-                let currentRange = SentenceBoundary.sentenceRange(in: text, at: idx)
-                let currentSentence = String(text[currentRange])
-
-                if direction < 0 {
-                    // 前の文と入れ替え
-                    guard currentRange.lowerBound > text.startIndex else { return }
-                    let prevIdx = text.index(before: currentRange.lowerBound)
-                    let prevRange = SentenceBoundary.sentenceRange(in: text, at: prevIdx)
-                    let prevSentence = String(text[prevRange])
-                    // 入れ替え前に UTF-16 オフセットを計算
-                    let baseOffset = prevRange.lowerBound.utf16Offset(in: text)
-                    let combinedRange = prevRange.lowerBound..<currentRange.upperBound
-                    text.replaceSubrange(combinedRange, with: currentSentence + prevSentence)
-                    // カーソルは移動した文の先頭
-                    cursorLocation = baseOffset
-                } else {
-                    // 次の文と入れ替え
-                    guard currentRange.upperBound < text.endIndex else { return }
-                    let nextRange = SentenceBoundary.sentenceRange(in: text, at: currentRange.upperBound)
-                    let nextSentence = String(text[nextRange])
-                    // 入れ替え前に UTF-16 オフセットを計算（replaceSubrange 後は Index が無効になるため）
-                    let baseOffset = currentRange.lowerBound.utf16Offset(in: text)
-                    let combinedRange = currentRange.lowerBound..<nextRange.upperBound
-                    text.replaceSubrange(combinedRange, with: nextSentence + currentSentence)
-                    // カーソルは移動した文の先頭（次の文の長さ分ずれた位置）
-                    cursorLocation = baseOffset + nextSentence.utf16.count
-                }
+                guard let r = ctrl.swapSentence(
+                    direction: direction, text: text,
+                    cursor: cursorLocation, selection: selectionLength
+                ) else { return }
+                text = r.text
+                cursorLocation = r.cursor
                 selectionLength = 0
-                smartSelection.reset()
             }
             gp.onSmartSelectExpand = {
-                guard !text.isEmpty else { return }
-                let idx = String.Index(utf16Offset: min(cursorLocation, text.utf16.count), in: text)
-                if let range = smartSelection.expand(in: text, cursor: idx) {
-                    // 文レベルまでに制限（.block はスキップ）
-                    if smartSelection.level > .sentence {
-                        _ = smartSelection.shrink(in: text)
-                        return
-                    }
-                    cursorLocation = range.lowerBound.utf16Offset(in: text)
-                    selectionLength = range.upperBound.utf16Offset(in: text) - cursorLocation
-                }
+                guard let r = ctrl.smartSelectExpand(text: text, cursor: cursorLocation) else { return }
+                cursorLocation = r.cursor
+                selectionLength = r.selection
             }
             gp.onSmartSelectShrink = {
-                guard !text.isEmpty else { return }
-                if let range = smartSelection.shrink(in: text) {
-                    cursorLocation = range.lowerBound.utf16Offset(in: text)
-                    selectionLength = range.upperBound.utf16Offset(in: text) - cursorLocation
-                } else {
-                    // none に戻った: カーソル位置を起点に戻す
-                    if let origin = smartSelection.origin {
-                        cursorLocation = origin.utf16Offset(in: text)
-                    }
-                    selectionLength = 0
-                    smartSelection.reset()
-                }
+                let r = ctrl.smartSelectShrink(text: text, cursor: cursorLocation)
+                cursorLocation = r.cursor
+                selectionLength = r.selection
             }
             gp.onExtendSelectionBySentence = { direction in
-                guard !text.isEmpty else { return }
-                let selStart = cursorLocation
-                let selEnd = cursorLocation + selectionLength
-                if direction < 0 {
-                    // 選択範囲を前の文頭まで拡張
-                    let startIdx = String.Index(utf16Offset: selStart, in: text)
-                    let newStart = SentenceBoundary.previousSentenceStart(in: text, before: startIdx)
-                    cursorLocation = newStart.utf16Offset(in: text)
-                    selectionLength = selEnd - cursorLocation
-                } else {
-                    // 選択範囲を次の文末まで拡張
-                    let endIdx = String.Index(utf16Offset: min(selEnd, text.utf16.count), in: text)
-                    let newEnd = SentenceBoundary.nextSentenceEnd(in: text, after: endIdx)
-                    selectionLength = newEnd.utf16Offset(in: text) - cursorLocation
-                }
+                let r = ctrl.extendSelectionBySentence(
+                    direction: direction, text: text,
+                    cursor: cursorLocation, selection: selectionLength)
+                cursorLocation = r.cursor
+                selectionLength = r.selection
             }
             pinyinEngine.load()
             gp.pinyinEngine = pinyinEngine
@@ -279,6 +233,13 @@ struct ContentView: View {
         }
         .onChange(of: text) { _, newValue in
             UserDefaults.standard.set(newValue, forKey: SendTextIntent.editorTextKey)
+        }
+        .onChange(of: gamepadInput?.isTextOperationMode) { _, isActive in
+            if isActive == true {
+                textOpController?.onModeEnter(text: text, cursor: cursorLocation)
+            } else {
+                textOpController?.onModeExit()
+            }
         }
     }
 
@@ -307,5 +268,28 @@ struct ContentView: View {
             presenter = presented
         }
         presenter.present(activityVC, animated: true)
+    }
+}
+
+// MARK: - フォーカスオーバーレイ
+
+/// テキスト操作モードのフォーカス効果
+///
+/// 指定された rect 以外を半透明の背景色で覆い、
+/// フォーカス中の文を「くり抜き」で際立たせる。
+private struct SentenceFocusOverlay: View {
+    let cutoutRects: [CGRect]
+
+    var body: some View {
+        Canvas { context, size in
+            // 全体を覆うパスから、フォーカス文の rect をくり抜く
+            var path = Path(CGRect(origin: .zero, size: size))
+            for rect in cutoutRects {
+                // くり抜き部分を角丸にして自然に見せる
+                path.addRoundedRect(in: rect, cornerSize: CGSize(width: 4, height: 4))
+            }
+            context.fill(path, with: .color(Color(.systemBackground).opacity(0.7)), style: FillStyle(eoFill: true))
+        }
+        .animation(.easeInOut(duration: 0.15), value: cutoutRects.map { [$0.origin.x, $0.origin.y, $0.width, $0.height] })
     }
 }

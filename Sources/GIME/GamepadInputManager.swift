@@ -162,6 +162,11 @@ final class GamepadInputManager {
     private var prevLStickLeft = false
     private var prevLStickRight = false
 
+    /// テキスト操作モード: RB+左スティックのキーリピート用フレームカウンタ
+    private var cursorRepeatFrames: Int = 0
+    private let cursorRepeatDelay: Int = 18   // 初回遅延（約300ms @ 60fps）
+    private let cursorRepeatInterval: Int = 4 // リピート間隔（約67ms @ 60fps）
+
     private var prevDpadUp = false
     private var prevDpadDown = false
     private var prevDpadLeft = false
@@ -622,14 +627,38 @@ final class GamepadInputManager {
     /// テキスト操作モードの入力処理
     ///
     /// - 左スティック: 文フォーカス移動（←↑=前文頭、→↓=次文頭）
-    /// - RT + 左スティック: カーソル位置の文を前後に移動
+    /// - RT + 左スティック: カーソル位置の文（または選択範囲）を前後に移動
+    /// - RB + 左スティック: 1文字/1行ずつカーソル移動（キーリピートあり）
     /// - D-pad ←→: スマート選択 縮小/拡大（文レベルまで）
     /// - D-pad ↑↓: 選択範囲を文単位で前/後に拡張
     private func handleTextOperationMode(_ gp: GamepadSnapshot, rtNow: Bool,
                                          lStickUp: Bool, lStickDown: Bool,
                                          lStickLeft: Bool, lStickRight: Bool) {
-        // 左スティック: 文フォーカス移動 / RT 押しながらで文の入れ替え
-        if rtNow {
+        let rbNow = gp.rb
+        let stickActive = lStickUp || lStickDown || lStickLeft || lStickRight
+
+        // RB + 左スティック: 1文字/1行カーソル移動（キーリピート付き）
+        if rbNow && stickActive {
+            let shouldFire: Bool
+            if cursorRepeatFrames == 0 {
+                // 初回: 即発火
+                shouldFire = true
+            } else if cursorRepeatFrames >= cursorRepeatDelay {
+                // リピート中: interval ごとに発火
+                shouldFire = (cursorRepeatFrames - cursorRepeatDelay) % cursorRepeatInterval == 0
+            } else {
+                shouldFire = false
+            }
+            cursorRepeatFrames += 1
+
+            if shouldFire {
+                if lStickLeft { onCursorMove?(-1) }
+                else if lStickRight { onCursorMove?(1) }
+                else if lStickUp { onCursorMoveVertical?(-1) }
+                else if lStickDown { onCursorMoveVertical?(1) }
+            }
+        } else if rtNow {
+            cursorRepeatFrames = 0
             // RT + 左スティック: 文の前後移動
             if (lStickLeft && !prevLStickLeft) || (lStickUp && !prevLStickUp) {
                 onSwapSentence?(-1)
@@ -638,6 +667,7 @@ final class GamepadInputManager {
                 onSwapSentence?(1)
             }
         } else {
+            cursorRepeatFrames = 0
             // 左スティック単体: 文フォーカス移動
             if (lStickLeft && !prevLStickLeft) || (lStickUp && !prevLStickUp) {
                 onSentenceFocusMove?(-1)
