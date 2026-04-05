@@ -140,13 +140,21 @@ struct GamepadVisualizerView: View {
                     .foregroundStyle(.white)
                     .clipShape(Capsule())
 
-                // テキスト操作モードバッジ
+                // 操作モードバッジ
                 if gamepadInput.isTextOperationMode {
                     Text("テキスト操作")
                         .font(.system(size: 12, weight: .semibold))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
                         .background(.orange)
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
+                } else if gamepadInput.isCameraMode {
+                    Text("カメラ")
+                        .font(.system(size: 12, weight: .semibold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(.purple)
                         .foregroundStyle(.white)
                         .clipShape(Capsule())
                 }
@@ -184,7 +192,9 @@ struct GamepadVisualizerView: View {
             .padding(.horizontal, 4)
 
             if !isCollapsed {
-                if gamepadInput.isTextOperationMode {
+                if gamepadInput.isCameraMode {
+                    CameraModeView(gamepadInput: gamepadInput)
+                } else if gamepadInput.isTextOperationMode {
                     textOperationGuide
                 } else {
                 HStack(spacing: 24) {
@@ -236,7 +246,7 @@ struct GamepadVisualizerView: View {
                 }
                 .padding()
                 .background(.background, in: RoundedRectangle(cornerRadius: 16))
-                } // end of !isTextOperationMode
+                } // end of normal mode
             }
         }
         .sheet(isPresented: $showSettings) {

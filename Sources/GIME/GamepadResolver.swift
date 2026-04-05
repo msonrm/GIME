@@ -35,6 +35,15 @@ enum GamepadInputMode: CaseIterable {
     }
 }
 
+// MARK: - 操作モード
+
+/// ゲームパッド操作モード（Back ボタンでサイクル）
+enum GamepadOperationMode {
+    case normal
+    case textOperation
+    case camera
+}
+
 // MARK: - かなテーブル
 
 /// 10行 × 5段のかなテーブル [row][vowel]

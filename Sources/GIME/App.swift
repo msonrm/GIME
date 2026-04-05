@@ -236,8 +236,8 @@ struct ContentView: View {
         .onChange(of: text) { _, newValue in
             UserDefaults.standard.set(newValue, forKey: SendTextIntent.editorTextKey)
         }
-        .onChange(of: gamepadInput?.isTextOperationMode) { _, isActive in
-            if isActive == true {
+        .onChange(of: gamepadInput?.operationMode) { _, newMode in
+            if newMode == .textOperation {
                 textOpController?.onModeEnter(text: text, cursor: cursorLocation)
             } else {
                 textOpController?.onModeExit()

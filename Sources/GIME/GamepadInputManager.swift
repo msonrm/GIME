@@ -67,7 +67,13 @@ final class GamepadInputManager {
     private(set) var pressedButtons: Set<String> = []
     private(set) var leftStickDirection: StickDirection = .neutral
     private(set) var currentMode: GamepadInputMode = .japanese
-    private(set) var isTextOperationMode = false
+    private(set) var operationMode: GamepadOperationMode = .normal
+
+    /// 後方互換: テキスト操作モード判定
+    var isTextOperationMode: Bool { operationMode == .textOperation }
+
+    /// カメラモード判定
+    var isCameraMode: Bool { operationMode == .camera }
 
     /// 中国語モード判定（簡体/繁体共通のロジック用）
     var isChinese: Bool {
@@ -369,14 +375,16 @@ final class GamepadInputManager {
         }()
         if leftStickDirection != lDir { leftStickDirection = lDir }
 
-        // === テキスト操作モード ===
-        if isTextOperationMode {
+        // === テキスト操作モード / カメラモード ===
+        if operationMode == .textOperation {
             onTextOperationFrame?()
             handleTextOperationMode(gp, rtNow: rtNow,
                                     lStickUp: lStickUp, lStickDown: lStickDown,
                                     lStickLeft: lStickLeft, lStickRight: lStickRight)
             // D-pad / 左スティック / 右スティックの入力処理をスキップし、
             // Back / LS / RS / Start ボタンの処理へ進む
+        } else if operationMode == .camera {
+            // カメラモード: 文字入力をスキップ（Hand Pose で入力）
         } else {
 
         // === モード別の文字入力・トリガー処理 ===
@@ -531,7 +539,7 @@ final class GamepadInputManager {
             if lStickLeft && !prevLStickLeft { executeAction(.shrinkSegment) }
         }
 
-        } // end of !isTextOperationMode
+        } // end of operationMode == .normal
 
         // --- 前フレーム状態更新（共通: スティック・D-pad） ---
         prevRStickUp = rStickUp
@@ -543,21 +551,32 @@ final class GamepadInputManager {
         prevLStickLeft = lStickLeft
         prevLStickRight = lStickRight
 
-        // === Back=スペース/テキスト操作モードトグル, LS=確定/改行, RS=キャンセル ===
+        // === Back=スペース/操作モードサイクル, LS=確定/改行, RS=キャンセル ===
         if prevBack && !gp.back && !startBackComboFired {
             let isIdle = inputManager.isEmpty && (!isChinese || pinyinBuffer.isEmpty)
-            if isTextOperationMode {
-                // テキスト操作モード中: Back で解除
-                isTextOperationMode = false
-            } else if isIdle {
-                // idle 時: テキスト操作モードに突入
-                isTextOperationMode = true
-            } else if currentMode == .japanese {
-                executeAction(.space)
-            } else {
-                if currentMode == .korean { koreanComposer.commit() }
-                if isChinese { confirmPinyinTopCandidate() }
-                onDirectInsert?(" ", 0)
+            switch operationMode {
+            case .normal where isIdle:
+                // idle 時: テキスト操作モードに遷移
+                operationMode = .textOperation
+            case .textOperation:
+                // テキスト操作モード → カメラモード（日本語のみ）
+                if currentMode == .japanese {
+                    operationMode = .camera
+                } else {
+                    operationMode = .normal
+                }
+            case .camera:
+                // カメラモード → 通常に戻る
+                operationMode = .normal
+            case .normal:
+                // composing 中: スペース挿入
+                if currentMode == .japanese {
+                    executeAction(.space)
+                } else {
+                    if currentMode == .korean { koreanComposer.commit() }
+                    if isChinese { confirmPinyinTopCandidate() }
+                    onDirectInsert?(" ", 0)
+                }
             }
         }
         if prevLS && !gp.lsClick {
