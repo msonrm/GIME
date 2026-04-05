@@ -248,60 +248,73 @@ final class GamepadInputManager {
 
         let row = resolveConsonantRow(consonant)
 
-        // --- UI 状態更新 ---
-        activeRow = row
-        activeVowel = vowel
-        activeLayer = lbNow ? .lb : .base
-        updatePressedButtons(gp)
+        // 右スティック方向の解決（入力処理と UI 状態更新の両方で使用）
+        let rsX = gp.rightStickX
+        let rsY = gp.rightStickY
+        let rsAbsX = abs(rsX)
+        let rsAbsY = abs(rsY)
+        let rsDominant = max(rsAbsX, rsAbsY) > stickThreshold
+        let rStickRight = rsDominant && rsAbsX > rsAbsY && rsX > 0
+        let rStickLeft  = rsDominant && rsAbsX > rsAbsY && rsX < 0
+        let rStickUp    = rsDominant && rsAbsY >= rsAbsX && rsY > 0
+        let rStickDown  = rsDominant && rsAbsY >= rsAbsX && rsY < 0
+
+        // --- UI 状態更新（値が変わったときだけ代入し、@Observable の不要な通知を避ける） ---
+        if activeRow != row { activeRow = row }
+        if activeVowel != vowel { activeVowel = vowel }
+        let layer: ActiveLayer = lbNow ? .lb : .base
+        if activeLayer != layer { activeLayer = layer }
+        updatePressedButtons(gp, rStickUp: rStickUp, rStickDown: rStickDown,
+                             rStickLeft: rStickLeft, rStickRight: rStickRight)
 
         // プレビュー文字（モード別テーブル）
         let v = vowel?.rawValue ?? 0
+        let newPreview: String?
         switch currentMode {
         case .japanese:
-            previewChar = vowelNow ? kanaTable[row][v] : nil
+            newPreview = vowelNow ? kanaTable[row][v] : nil
         case .english:
             if vowelNow {
                 let char = englishTable[row][v]
-                if char.isEmpty { previewChar = nil }
-                else if englishCapsLock || englishSmartCaps || englishShiftNext { previewChar = char.uppercased() }
-                else { previewChar = char }
+                if char.isEmpty { newPreview = nil }
+                else if englishCapsLock || englishSmartCaps || englishShiftNext { newPreview = char.uppercased() }
+                else { newPreview = char }
             } else {
-                previewChar = nil
+                newPreview = nil
             }
         case .korean:
             if vowelNow {
                 let onsetIdx = koreanOnsetForRow[row]
                 let nucleusIdx = rtNow ? koreanNucleusShifted[v] : koreanNucleusBase[v]
                 let code = 0xAC00 + (onsetIdx * 21 + nucleusIdx) * 28
-                previewChar = String(Character(UnicodeScalar(code)!))
+                newPreview = String(Character(UnicodeScalar(code)!))
             } else if ltNow {
-                previewChar = "ㅇ"
+                newPreview = "ㅇ"
             } else if lbNow || gp.dpadUp || gp.dpadDown || gp.dpadLeft || gp.dpadRight {
-                previewChar = koreanRowNames[row]
+                newPreview = koreanRowNames[row]
             } else {
-                previewChar = nil
+                newPreview = nil
             }
         case .chineseSimplified:
             if vowelNow {
                 let char = englishTable[row][v]
-                if char.isEmpty { previewChar = nil }
-                // 数字（RB）はプレビューしない
-                else if char.first?.isNumber == true { previewChar = nil }
-                else { previewChar = char }
+                if char.isEmpty { newPreview = nil }
+                else if char.first?.isNumber == true { newPreview = nil }
+                else { newPreview = char }
             } else {
-                previewChar = nil
+                newPreview = nil
             }
         case .chineseTraditional:
             if vowelNow {
                 let char = zhuyinTable[row][v]
-                if char.isEmpty { previewChar = nil }
-                // 数字（RB）はプレビューしない
-                else if char.first?.isNumber == true { previewChar = nil }
-                else { previewChar = char }
+                if char.isEmpty { newPreview = nil }
+                else if char.first?.isNumber == true { newPreview = nil }
+                else { newPreview = char }
             } else {
-                previewChar = nil
+                newPreview = nil
             }
         }
+        if previewChar != newPreview { previewChar = newPreview }
 
         // === モード別の文字入力・トリガー処理 ===
         switch currentMode {
@@ -318,18 +331,6 @@ final class GamepadInputManager {
         }
 
         // === 右スティック（共通: ← バックスペース） ===
-        let rsX = gp.rightStickX
-        let rsY = gp.rightStickY
-        let absX = abs(rsX)
-        let absY = abs(rsY)
-        let maxAxis = max(absX, absY)
-        let dominant: String? = maxAxis > stickThreshold ? (absX > absY ? "x" : "y") : nil
-
-        let rStickRight = dominant == "x" && rsX > 0
-        let rStickLeft = dominant == "x" && rsX < 0
-        let rStickUp = dominant == "y" && rsY > 0
-        let rStickDown = dominant == "y" && rsY < 0
-
         if rStickLeft && !prevRStickLeft {
             if isChinese && !pinyinBuffer.isEmpty {
                 pinyinBuffer.removeLast()
@@ -442,11 +443,13 @@ final class GamepadInputManager {
         let lStickUp = lDominant == "y" && lsY > 0
         let lStickDown = lDominant == "y" && lsY < 0
 
-        if lStickDown { leftStickDirection = .down }
-        else if lStickRight { leftStickDirection = .right }
-        else if lStickLeft { leftStickDirection = .left }
-        else if lStickUp { leftStickDirection = .up }
-        else { leftStickDirection = .neutral }
+        let lStickDir: StickDirection =
+            if lStickDown { .down }
+            else if lStickRight { .right }
+            else if lStickLeft { .left }
+            else if lStickUp { .up }
+            else { .neutral }
+        if leftStickDirection != lStickDir { leftStickDirection = lStickDir }
 
         if isChinese && !pinyinCandidates.isEmpty {
             // 中国語候補選択中: ↑↓ で候補移動（スライディングウィンドウ）
@@ -1111,7 +1114,9 @@ final class GamepadInputManager {
         return nil
     }
 
-    private func updatePressedButtons(_ gp: GamepadSnapshot) {
+    private func updatePressedButtons(_ gp: GamepadSnapshot,
+                                      rStickUp: Bool, rStickDown: Bool,
+                                      rStickLeft: Bool, rStickRight: Bool) {
         var buttons: Set<String> = []
         if gp.dpadUp { buttons.insert("dpadUp") }
         if gp.dpadDown { buttons.insert("dpadDown") }
@@ -1127,19 +1132,10 @@ final class GamepadInputManager {
         if gp.buttonY { buttons.insert("Y") }
         if gp.start { buttons.insert("Start") }
         if gp.back { buttons.insert("Back") }
-        // 右スティック方向（ビジュアライザ用）
-        let rsX = gp.rightStickX
-        let rsY = gp.rightStickY
-        let rAbsX = abs(rsX)
-        let rAbsY = abs(rsY)
-        let rMax = max(rAbsX, rAbsY)
-        if rMax > stickThreshold {
-            if rAbsX > rAbsY {
-                buttons.insert(rsX > 0 ? "rStickRight" : "rStickLeft")
-            } else {
-                buttons.insert(rsY > 0 ? "rStickUp" : "rStickDown")
-            }
-        }
-        pressedButtons = buttons
+        if rStickUp { buttons.insert("rStickUp") }
+        if rStickDown { buttons.insert("rStickDown") }
+        if rStickLeft { buttons.insert("rStickLeft") }
+        if rStickRight { buttons.insert("rStickRight") }
+        if pressedButtons != buttons { pressedButtons = buttons }
     }
 }
