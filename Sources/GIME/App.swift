@@ -88,9 +88,8 @@ struct ContentView: View {
                 }
                 .overlay {
                     // フォーカスオーバーレイ（テキスト操作モード中、フォーカス文以外を暗く）
-                    if let gp = gamepadInput, gp.isTextOperationMode,
-                       let rects = textOpController?.focusedSentenceRects, !rects.isEmpty {
-                        SentenceFocusOverlay(cutoutRects: rects)
+                    if let ctrl = textOpController, ctrl.isFocusOverlayActive {
+                        SentenceFocusOverlay(cutoutRects: ctrl.focusedSentenceRects)
                             .allowsHitTesting(false)
                     }
                 }

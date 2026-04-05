@@ -11,7 +11,11 @@ import KeyLogicKit
 final class TextOperationController {
 
     /// フォーカス中の文の視覚 rect（オーバーレイ描画用）
+    /// 空配列の場合、テキスト操作モード中なら全面マスクになる
     private(set) var focusedSentenceRects: [CGRect] = []
+
+    /// フォーカスオーバーレイを表示するか（モード中は常に true）
+    private(set) var isFocusOverlayActive = false
 
     // MARK: - Dependencies
 
@@ -63,6 +67,8 @@ final class TextOperationController {
         smartSelection.reset()
         sentenceSelectionDirection = 0
         lastFocusCursor = newCursor
+        // スクロール完了まで全面マスク（refreshFocusRectsIfNeeded で復帰）
+        focusedSentenceRects = []
         return CursorResult(cursor: newCursor, selection: 0)
     }
 
@@ -185,12 +191,14 @@ final class TextOperationController {
 
     /// テキスト操作モードに突入
     func onModeEnter(text: String, cursor: Int) {
+        isFocusOverlayActive = true
         lastFocusCursor = cursor
         updateFocusRects(text: text, cursor: cursor)
     }
 
     /// テキスト操作モードから離脱
     func onModeExit() {
+        isFocusOverlayActive = false
         focusedSentenceRects = []
         lastFocusCursor = nil
         sentenceSelectionDirection = 0

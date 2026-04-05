@@ -165,11 +165,8 @@ final class GamepadInputManager {
     private var prevLStickLeft = false
     private var prevLStickRight = false
 
-    /// テキスト操作モード: RB+左スティックのキーリピート用フレームカウンタ
-    private var cursorRepeatFrames: Int = 0
-    private let cursorRepeatDelay: Int = 18   // 初回遅延（約300ms @ 60fps）
-    private let cursorRepeatInterval: Int = 4 // リピート間隔（約67ms @ 60fps）
 
+    private var prevRB = false
     private var prevDpadUp = false
     private var prevDpadDown = false
     private var prevDpadLeft = false
@@ -616,6 +613,7 @@ final class GamepadInputManager {
         prevVowel = vowelNow ? vowel : nil
         prevLT = ltNow
         prevRT = rtNow
+        prevRB = gp.rb
         prevDpadUp = gp.dpadUp
         prevDpadDown = gp.dpadDown
         prevDpadLeft = gp.dpadLeft
@@ -639,46 +637,28 @@ final class GamepadInputManager {
                                          lStickUp: Bool, lStickDown: Bool,
                                          lStickLeft: Bool, lStickRight: Bool) {
         let rbNow = gp.rb
-        let stickActive = lStickUp || lStickDown || lStickLeft || lStickRight
 
-        // RB + 左スティック: 1文字/1行カーソル移動（キーリピート付き）
-        if rbNow && stickActive {
-            let shouldFire: Bool
-            if cursorRepeatFrames == 0 {
-                // 初回: 即発火
-                shouldFire = true
-            } else if cursorRepeatFrames >= cursorRepeatDelay {
-                // リピート中: interval ごとに発火
-                shouldFire = (cursorRepeatFrames - cursorRepeatDelay) % cursorRepeatInterval == 0
-            } else {
-                shouldFire = false
-            }
-            cursorRepeatFrames += 1
+        // 全操作エッジ検出のみ（キーリピートなし）
+        let edgeLeft = lStickLeft && !prevLStickLeft
+        let edgeRight = lStickRight && !prevLStickRight
+        let edgeUp = lStickUp && !prevLStickUp
+        let edgeDown = lStickDown && !prevLStickDown
 
-            if shouldFire {
-                if lStickLeft { onCursorMove?(-1) }
-                else if lStickRight { onCursorMove?(1) }
-                else if lStickUp { onCursorMoveVertical?(-1) }
-                else if lStickDown { onCursorMoveVertical?(1) }
-            }
+        if rbNow {
+            // RB + 左スティック: 1文字/1行カーソル移動
+            if edgeLeft { onCursorMove?(-1) }
+            if edgeRight { onCursorMove?(1) }
+            if edgeUp { onCursorMoveVertical?(-1) }
+            if edgeDown { onCursorMoveVertical?(1) }
         } else if rtNow {
-            cursorRepeatFrames = 0
             // RT + 左スティック: 文の前後移動
-            if (lStickLeft && !prevLStickLeft) || (lStickUp && !prevLStickUp) {
-                onSwapSentence?(-1)
-            }
-            if (lStickRight && !prevLStickRight) || (lStickDown && !prevLStickDown) {
-                onSwapSentence?(1)
-            }
-        } else {
-            cursorRepeatFrames = 0
+            if edgeLeft || edgeUp { onSwapSentence?(-1) }
+            if edgeRight || edgeDown { onSwapSentence?(1) }
+        } else if !prevRB && !prevRT {
             // 左スティック単体: 文フォーカス移動
-            if (lStickLeft && !prevLStickLeft) || (lStickUp && !prevLStickUp) {
-                onSentenceFocusMove?(-1)
-            }
-            if (lStickRight && !prevLStickRight) || (lStickDown && !prevLStickDown) {
-                onSentenceFocusMove?(1)
-            }
+            // ※ 前フレームで RB/RT が押されていた場合はスキップ（認識ずれで誤発火を防ぐ）
+            if edgeLeft || edgeUp { onSentenceFocusMove?(-1) }
+            if edgeRight || edgeDown { onSentenceFocusMove?(1) }
         }
 
         // D-pad: スマート選択・文単位拡張

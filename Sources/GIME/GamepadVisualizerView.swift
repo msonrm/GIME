@@ -249,16 +249,16 @@ struct GamepadVisualizerView: View {
     // MARK: - テキスト操作モード ガイド
 
     private var textOperationGuide: some View {
-        HStack(spacing: 20) {
-            guideColumn(title: "L🕹 フォーカス", items: [
-                "←↑ 前の文頭",
-                "→↓ 次の文末",
-            ])
+        HStack(alignment: .top, spacing: 20) {
             guideColumn(title: "D-pad 選択", items: [
                 "→ 拡大（括弧→文）",
                 "← 縮小",
                 "↑ 文選択（後方）",
                 "↓ 文選択（前方）",
+            ])
+            guideColumn(title: "L🕹 フォーカス", items: [
+                "←↑ 前の文頭",
+                "→↓ 次の文末",
             ])
             guideColumn(title: "RB+L🕹 カーソル", items: [
                 "←→ 1文字移動",
