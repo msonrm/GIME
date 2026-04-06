@@ -101,13 +101,6 @@ final class CameraInputManager: NSObject {
     private let videoOutput = AVCaptureVideoDataOutput()
     private let processingQueue = DispatchQueue(label: "camera-input-processing")
 
-    /// Hand Pose リクエスト（両手検出）
-    private let handPoseRequest: VNDetectHumanHandPoseRequest = {
-        let request = VNDetectHumanHandPoseRequest()
-        request.maximumHandCount = 2
-        return request
-    }()
-
     /// 前フレームの親指先端位置（速度計算用）
     private var prevLeftThumbTip: CGPoint?
     private var prevRightThumbTip: CGPoint?
@@ -215,14 +208,17 @@ final class CameraInputManager: NSObject {
     nonisolated private func processFrame(_ sampleBuffer: CMSampleBuffer) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
+        let request = VNDetectHumanHandPoseRequest()
+        request.maximumHandCount = 2
+
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
         do {
-            try handler.perform([handPoseRequest])
+            try handler.perform([request])
         } catch {
             return
         }
 
-        guard let observations = handPoseRequest.results, !observations.isEmpty else { return }
+        guard let observations = request.results, !observations.isEmpty else { return }
 
         let now = CACurrentMediaTime()
 
