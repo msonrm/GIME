@@ -152,18 +152,6 @@ struct GamepadVisualizerView: View {
                         .clipShape(Capsule())
                         .accessibilityLabel("テキスト操作モード")
                 }
-                #if ENABLE_CAMERA
-                else if gamepadInput.isCameraMode {
-                    Text("カメラ")
-                        .font(.system(size: 12, weight: .semibold))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(.purple)
-                        .foregroundStyle(.white)
-                        .clipShape(Capsule())
-                        .accessibilityLabel("カメラモード")
-                }
-                #endif
 
                 // 中国語モード: バッファ表示（繁体字は注音、簡体字はピンイン）
                 if (mode == .chineseSimplified || mode == .chineseTraditional) && !gamepadInput.pinyinBuffer.isEmpty {
@@ -202,11 +190,6 @@ struct GamepadVisualizerView: View {
             .padding(.horizontal, 4)
 
             if !isCollapsed {
-                #if ENABLE_CAMERA
-                if gamepadInput.isCameraMode {
-                    CameraModeView(gamepadInput: gamepadInput)
-                } else
-                #endif
                 if gamepadInput.isTextOperationMode {
                     textOperationGuide
                 } else {
