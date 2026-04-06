@@ -63,6 +63,17 @@ enum MiddleFingerTapState {
     case cooldown(frameCount: Int)
 }
 
+/// nonisolated → @MainActor 境界を越えるための Sendable スナップショット
+private struct HandPoseSnapshot: Sendable {
+    let chirality: VNChirality
+    let thumbTip: CGPoint
+    let thumbIP: CGPoint
+    let wrist: CGPoint
+    let indexTip: CGPoint
+    let indexMCP: CGPoint
+    let middleTipConfidence: Float
+}
+
 // MARK: - CameraInputManager
 
 @Observable
@@ -220,49 +231,55 @@ final class CameraInputManager: NSObject {
 
         guard let observations = request.results, !observations.isEmpty else { return }
 
+        // non-Sendable な VNHumanHandPoseObservation から Sendable な値を抽出
+        let snapshots = observations.compactMap { obs -> HandPoseSnapshot? in
+            guard let thumbTip = try? obs.recognizedPoint(.thumbTip),
+                  let thumbIP = try? obs.recognizedPoint(.thumbIP),
+                  let wrist = try? obs.recognizedPoint(.wrist),
+                  let indexTip = try? obs.recognizedPoint(.indexTip),
+                  let indexMCP = try? obs.recognizedPoint(.indexMCP),
+                  let middleTip = try? obs.recognizedPoint(.middleTip) else {
+                return nil
+            }
+            return HandPoseSnapshot(
+                chirality: obs.chirality,
+                thumbTip: thumbTip.location, thumbIP: thumbIP.location, wrist: wrist.location,
+                indexTip: indexTip.location, indexMCP: indexMCP.location,
+                middleTipConfidence: middleTip.confidence
+            )
+        }
+
         let now = CACurrentMediaTime()
 
         Task { @MainActor in
-            self.updateHandStates(observations: observations, timestamp: now)
+            self.updateHandStates(snapshots: snapshots, timestamp: now)
         }
     }
 
-    /// 検出結果からジェスチャー状態を更新
-    private func updateHandStates(observations: [VNHumanHandPoseObservation], timestamp: TimeInterval) {
+    /// スナップショットからジェスチャー状態を更新
+    private func updateHandStates(snapshots: [HandPoseSnapshot], timestamp: TimeInterval) {
         let dt = timestamp - prevTimestamp
         prevTimestamp = timestamp
 
-        for observation in observations {
-            let chirality = observation.chirality
-
-            guard let thumbTip = try? observation.recognizedPoint(.thumbTip),
-                  let thumbIP = try? observation.recognizedPoint(.thumbIP),
-                  let wrist = try? observation.recognizedPoint(.wrist),
-                  let indexTip = try? observation.recognizedPoint(.indexTip),
-                  let indexMCP = try? observation.recognizedPoint(.indexMCP),
-                  let middleTip = try? observation.recognizedPoint(.middleTip) else {
-                continue
-            }
-
+        for snap in snapshots {
             // 親指の方向: 親指先端の wrist からの相対位置で判定
-            let thumbDir = resolveThumbDirection(thumbTip: thumbTip, thumbIP: thumbIP, wrist: wrist)
+            let thumbDir = resolveThumbDirection(thumbTip: snap.thumbTip, thumbIP: snap.thumbIP, wrist: snap.wrist)
 
             // 親指の速度
-            let thumbPos = CGPoint(x: thumbTip.location.x, y: thumbTip.location.y)
             let velocity: CGFloat
-            if chirality == .left, let prev = prevLeftThumbTip, dt > 0 {
-                velocity = hypot(thumbPos.x - prev.x, thumbPos.y - prev.y) / dt
-            } else if chirality == .right, let prev = prevRightThumbTip, dt > 0 {
-                velocity = hypot(thumbPos.x - prev.x, thumbPos.y - prev.y) / dt
+            if snap.chirality == .left, let prev = prevLeftThumbTip, dt > 0 {
+                velocity = hypot(snap.thumbTip.x - prev.x, snap.thumbTip.y - prev.y) / dt
+            } else if snap.chirality == .right, let prev = prevRightThumbTip, dt > 0 {
+                velocity = hypot(snap.thumbTip.x - prev.x, snap.thumbTip.y - prev.y) / dt
             } else {
                 velocity = 0
             }
 
             // 人差し指の屈曲: 指先と MCP の距離で判定
-            let indexBent = isFingerBent(tip: indexTip, mcp: indexMCP)
+            let indexBent = distanceBetween(snap.indexTip, snap.indexMCP) < 0.08
 
             // 中指の可視性: confidence で判定
-            let middleVisible = middleTip.confidence > 0.3
+            let middleVisible = snap.middleTipConfidence > 0.3
 
             let state = HandGestureState(
                 thumbDirection: thumbDir,
@@ -271,14 +288,14 @@ final class CameraInputManager: NSObject {
                 isMiddleFingerVisible: middleVisible
             )
 
-            if chirality == .left {
+            if snap.chirality == .left {
                 leftHand = state
-                prevLeftThumbTip = thumbPos
+                prevLeftThumbTip = snap.thumbTip
                 updateMiddleFingerTap(visible: middleVisible, state: &leftMiddleTapState, onTap: onLeftTriggerTap)
                 detectThumbPeak(velocity: velocity, direction: thumbDir, timestamp: timestamp, isLeft: true)
             } else {
                 rightHand = state
-                prevRightThumbTip = thumbPos
+                prevRightThumbTip = snap.thumbTip
                 updateMiddleFingerTap(visible: middleVisible, state: &rightMiddleTapState, onTap: onRightTriggerTap)
                 detectThumbPeak(velocity: velocity, direction: thumbDir, timestamp: timestamp, isLeft: false)
             }
@@ -289,10 +306,10 @@ final class CameraInputManager: NSObject {
 
     /// 親指の方向を判定（wrist 基準の相対位置）
     private func resolveThumbDirection(
-        thumbTip: VNRecognizedPoint, thumbIP: VNRecognizedPoint, wrist: VNRecognizedPoint
+        thumbTip: CGPoint, thumbIP: CGPoint, wrist: CGPoint
     ) -> ThumbDirection {
-        let dx = thumbTip.location.x - wrist.location.x
-        let dy = thumbTip.location.y - wrist.location.y
+        let dx = thumbTip.x - wrist.x
+        let dy = thumbTip.y - wrist.y
 
         // 移動量が小さければニュートラル
         let threshold: CGFloat = 0.05
@@ -305,10 +322,9 @@ final class CameraInputManager: NSObject {
         }
     }
 
-    /// 指が曲がっているか判定（指先と MCP の距離）
-    private func isFingerBent(tip: VNRecognizedPoint, mcp: VNRecognizedPoint) -> Bool {
-        let dist = hypot(tip.location.x - mcp.location.x, tip.location.y - mcp.location.y)
-        return dist < 0.08
+    /// 2点間の距離
+    private func distanceBetween(_ a: CGPoint, _ b: CGPoint) -> CGFloat {
+        hypot(a.x - b.x, a.y - b.y)
     }
 
     /// 中指タップ検出（不可視→可視→不可視の遷移）
