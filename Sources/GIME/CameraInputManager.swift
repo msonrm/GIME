@@ -64,7 +64,7 @@ enum MiddleFingerTapState {
 }
 
 /// nonisolated → @MainActor 境界を越えるための Sendable スナップショット
-private struct HandPoseSnapshot: Sendable {
+struct HandPoseSnapshot: Sendable {
     let chirality: VNChirality
     let thumbTip: CGPoint
     let thumbIP: CGPoint
@@ -72,6 +72,8 @@ private struct HandPoseSnapshot: Sendable {
     let indexTip: CGPoint
     let indexMCP: CGPoint
     let middleTipConfidence: Float
+    /// ボーン描画用: 全関節点（Vision 正規化座標 0-1、左下原点）
+    let joints: [VNHumanHandPoseObservation.JointName: CGPoint]
 }
 
 // MARK: - CameraInputManager
@@ -90,6 +92,9 @@ final class CameraInputManager: NSObject {
 
     /// 右手のジェスチャー状態
     private(set) var rightHand = HandGestureState()
+
+    /// ボーン描画用: 最新の Hand Pose スナップショット
+    private(set) var latestSnapshots: [HandPoseSnapshot] = []
 
     /// カメラが起動中か
     private(set) var isRunning = false
@@ -232,6 +237,14 @@ final class CameraInputManager: NSObject {
         guard let observations = request.results, !observations.isEmpty else { return }
 
         // non-Sendable な VNHumanHandPoseObservation から Sendable な値を抽出
+        let allJointNames: [VNHumanHandPoseObservation.JointName] = [
+            .wrist,
+            .thumbCMC, .thumbMP, .thumbIP, .thumbTip,
+            .indexMCP, .indexPIP, .indexDIP, .indexTip,
+            .middleMCP, .middlePIP, .middleDIP, .middleTip,
+            .ringMCP, .ringPIP, .ringDIP, .ringTip,
+            .littleMCP, .littlePIP, .littleDIP, .littleTip,
+        ]
         let snapshots = observations.compactMap { obs -> HandPoseSnapshot? in
             guard let thumbTip = try? obs.recognizedPoint(.thumbTip),
                   let thumbIP = try? obs.recognizedPoint(.thumbIP),
@@ -241,11 +254,19 @@ final class CameraInputManager: NSObject {
                   let middleTip = try? obs.recognizedPoint(.middleTip) else {
                 return nil
             }
+            // 全関節点を収集（ボーン描画用）
+            var joints: [VNHumanHandPoseObservation.JointName: CGPoint] = [:]
+            for name in allJointNames {
+                if let pt = try? obs.recognizedPoint(name), pt.confidence > 0.1 {
+                    joints[name] = pt.location
+                }
+            }
             return HandPoseSnapshot(
                 chirality: obs.chirality,
                 thumbTip: thumbTip.location, thumbIP: thumbIP.location, wrist: wrist.location,
                 indexTip: indexTip.location, indexMCP: indexMCP.location,
-                middleTipConfidence: middleTip.confidence
+                middleTipConfidence: middleTip.confidence,
+                joints: joints
             )
         }
 
@@ -258,6 +279,7 @@ final class CameraInputManager: NSObject {
 
     /// スナップショットからジェスチャー状態を更新
     private func updateHandStates(snapshots: [HandPoseSnapshot], timestamp: TimeInterval) {
+        latestSnapshots = snapshots
         let dt = timestamp - prevTimestamp
         prevTimestamp = timestamp
 

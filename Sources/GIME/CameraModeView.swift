@@ -4,6 +4,7 @@
 /// 将来的にバーチャルボタンのオーバーレイを追加予定。
 
 import SwiftUI
+import Vision
 
 struct CameraModeView: View {
     var gamepadInput: GamepadInputManager
@@ -12,12 +13,22 @@ struct CameraModeView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            // カメラプレビュー
+            // カメラプレビュー + ボーンオーバーレイ
             ZStack {
                 CameraPreviewView(session: cameraInput.session)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
 
-                // Hand Pose 状態オーバーレイ（将来のバーチャルボタン用の土台）
+                // Hand Pose ボーン描画
+                GeometryReader { geo in
+                    HandBoneOverlay(
+                        snapshots: cameraInput.latestSnapshots,
+                        viewSize: geo.size,
+                        isFrontCamera: cameraInput.cameraPosition == .front
+                    )
+                }
+                .allowsHitTesting(false)
+
+                // Hand Pose 状態オーバーレイ
                 VStack {
                     Spacer()
                     handStateOverlay
@@ -129,5 +140,66 @@ struct CameraModeView: View {
         }
         return Image(systemName: icon)
             .foregroundStyle(direction == .neutral ? Color(.systemGray4) : .white)
+    }
+}
+
+// MARK: - Hand Pose ボーンオーバーレイ
+
+/// Vision の関節点を線で結んでカメラ映像上に描画する
+private struct HandBoneOverlay: View {
+    let snapshots: [HandPoseSnapshot]
+    let viewSize: CGSize
+    let isFrontCamera: Bool
+
+    /// 指ごとのボーン接続（wrist → 各指先）
+    private static let fingerBones: [[VNHumanHandPoseObservation.JointName]] = [
+        [.wrist, .thumbCMC, .thumbMP, .thumbIP, .thumbTip],
+        [.wrist, .indexMCP, .indexPIP, .indexDIP, .indexTip],
+        [.wrist, .middleMCP, .middlePIP, .middleDIP, .middleTip],
+        [.wrist, .ringMCP, .ringPIP, .ringDIP, .ringTip],
+        [.wrist, .littleMCP, .littlePIP, .littleDIP, .littleTip],
+    ]
+
+    var body: some View {
+        Canvas { context, size in
+            for snapshot in snapshots {
+                let color: Color = snapshot.chirality == .left ? .cyan : .yellow
+
+                // ボーン（骨格線）を描画
+                for finger in Self.fingerBones {
+                    var path = Path()
+                    var started = false
+                    for jointName in finger {
+                        guard let pt = snapshot.joints[jointName] else { continue }
+                        let viewPt = visionToView(pt, in: size)
+                        if started {
+                            path.addLine(to: viewPt)
+                        } else {
+                            path.move(to: viewPt)
+                            started = true
+                        }
+                    }
+                    context.stroke(path, with: .color(color.opacity(0.8)), lineWidth: 2)
+                }
+
+                // 関節点を描画
+                for (_, pt) in snapshot.joints {
+                    let viewPt = visionToView(pt, in: size)
+                    let dot = Path(ellipseIn: CGRect(
+                        x: viewPt.x - 3, y: viewPt.y - 3,
+                        width: 6, height: 6
+                    ))
+                    context.fill(dot, with: .color(color))
+                }
+            }
+        }
+    }
+
+    /// Vision 正規化座標（0-1、左下原点）→ ビュー座標に変換
+    private func visionToView(_ point: CGPoint, in size: CGSize) -> CGPoint {
+        // Vision: 左下原点、Y 上向き → ビュー: 左上原点、Y 下向き
+        let x = isFrontCamera ? (1 - point.x) : point.x  // 前面カメラはミラー
+        let y = 1 - point.y
+        return CGPoint(x: x * size.width, y: y * size.height)
     }
 }
