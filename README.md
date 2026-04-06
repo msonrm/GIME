@@ -1,4 +1,4 @@
-# GIME — Gamepad IME
+# GiME — Gamepad IME
 
 iPad + ゲームパッドで日本語・英語・韓国語・中国語簡体字・中国語繁體字を入力できる実験的アプリ。
 

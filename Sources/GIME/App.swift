@@ -52,6 +52,7 @@ struct ContentView: View {
                     hidesSoftwareKeyboard: true
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityLabel("テキストエディタ")
                 .overlay(alignment: .topLeading) {
                     // 変換候補ポップアップ（日本語）
                     if inputManager.state == .selecting {
@@ -91,6 +92,7 @@ struct ContentView: View {
                     if let ctrl = textOpController, ctrl.isFocusOverlayActive {
                         SentenceFocusOverlay(cutoutRects: ctrl.focusedSentenceRects)
                             .allowsHitTesting(false)
+                            .accessibilityHidden(true)
                     }
                 }
 
@@ -114,9 +116,12 @@ struct ContentView: View {
                         RoundedRectangle(cornerRadius: 16)
                             .fill(Color(.systemGray6))
                             .frame(height: 180)
+                            .accessibilityHidden(true)
                     }
                     .padding([.horizontal, .top])
                     .background(.ultraThinMaterial)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("ゲームパッド未接続。コントローラーを接続してください。")
                 }
             }
         }

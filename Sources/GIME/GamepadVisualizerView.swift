@@ -139,6 +139,7 @@ struct GamepadVisualizerView: View {
                     .background(modeBadgeColor)
                     .foregroundStyle(.white)
                     .clipShape(Capsule())
+                    .accessibilityLabel("入力モード: \(mode.label)")
 
                 // 操作モードバッジ
                 if gamepadInput.isTextOperationMode {
@@ -149,6 +150,7 @@ struct GamepadVisualizerView: View {
                         .background(.orange)
                         .foregroundStyle(.white)
                         .clipShape(Capsule())
+                        .accessibilityLabel("テキスト操作モード")
                 } else if gamepadInput.isCameraMode {
                     Text("カメラ")
                         .font(.system(size: 12, weight: .semibold))
@@ -157,16 +159,19 @@ struct GamepadVisualizerView: View {
                         .background(.purple)
                         .foregroundStyle(.white)
                         .clipShape(Capsule())
+                        .accessibilityLabel("カメラモード")
                 }
 
                 // 中国語モード: バッファ表示（繁体字は注音、簡体字はピンイン）
                 if (mode == .chineseSimplified || mode == .chineseTraditional) && !gamepadInput.pinyinBuffer.isEmpty {
-                    Text(mode == .chineseTraditional ? gamepadInput.zhuyinDisplayBuffer : gamepadInput.pinyinBuffer)
+                    let bufferText = mode == .chineseTraditional ? gamepadInput.zhuyinDisplayBuffer : gamepadInput.pinyinBuffer
+                    Text(bufferText)
                         .font(.system(size: 16, weight: .medium, design: .monospaced))
                         .foregroundStyle(.primary)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
                         .background(Color(.systemGray5), in: RoundedRectangle(cornerRadius: 6))
+                        .accessibilityLabel("入力中: \(bufferText)")
                 }
 
                 Spacer()
@@ -180,6 +185,7 @@ struct GamepadVisualizerView: View {
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
+                .accessibilityLabel(isCollapsed ? "ビジュアライザを展開" : "ビジュアライザを折りたたむ")
 
                 Button {
                     showSettings = true
@@ -188,6 +194,7 @@ struct GamepadVisualizerView: View {
                         .font(.system(size: 18))
                         .foregroundStyle(.secondary)
                 }
+                .accessibilityLabel("設定")
             }
             .padding(.horizontal, 4)
 
@@ -224,6 +231,8 @@ struct GamepadVisualizerView: View {
                             .foregroundStyle(gamepadInput.previewChar != nil ? Color.accentColor : Color(.systemGray4))
                             .frame(minWidth: 70)
                     }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("プレビュー: \(gamepadInput.previewChar ?? "なし")、行: \(currentRowNames[gamepadInput.activeRow])")
 
                     // 右側: RB/RT + フェイスボタン（RB=内側, RT=外側）
                     VStack(spacing: 8) {
@@ -243,6 +252,8 @@ struct GamepadVisualizerView: View {
                     }
                     // 右スティック（コンパクト十字型）
                     rightStickGrid
+                        .accessibilityElement(children: .contain)
+                        .accessibilityLabel("右スティック")
                 }
                 .padding()
                 .background(.background, in: RoundedRectangle(cornerRadius: 16))
@@ -436,6 +447,9 @@ struct GamepadVisualizerView: View {
         .background(pressed ? Color.accentColor : Color(.systemGray5), in: RoundedRectangle(cornerRadius: 8))
         .foregroundStyle(pressed ? .white : .primary)
         .shadow(color: Self.buttonShadow, radius: 2, y: 1)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(name): \(char)")
+        .accessibilityValue(pressed ? "押下中" : "")
     }
 
     private func faceButton(label: String, pressed: Bool) -> some View {
@@ -445,6 +459,8 @@ struct GamepadVisualizerView: View {
             .background(pressed ? Color.accentColor : Color(.systemGray5), in: Circle())
             .foregroundStyle(pressed ? .white : .primary)
             .shadow(color: Self.buttonShadow, radius: 2, y: 1)
+            .accessibilityLabel(label)
+            .accessibilityValue(pressed ? "押下中" : "")
     }
 
     /// 英語モード: フェイスボタン位置に文字を十字配置した D-pad ボタン
@@ -468,6 +484,9 @@ struct GamepadVisualizerView: View {
         .background(pressed ? Color.accentColor : Color(.systemGray5).opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
         .foregroundStyle(pressed ? .white : .secondary)
         .shadow(color: Self.buttonShadow, radius: 2, y: 1)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel([chars.up, chars.left, chars.right, chars.down].filter { !$0.isEmpty }.joined(separator: " "))
+        .accessibilityValue(pressed ? "押下中" : "")
     }
 
     private func dpadButton(label: String, pressed: Bool) -> some View {
@@ -477,6 +496,8 @@ struct GamepadVisualizerView: View {
             .background(pressed ? Color.accentColor : Color(.systemGray5).opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
             .foregroundStyle(pressed ? .white : .secondary)
             .shadow(color: Self.buttonShadow, radius: 2, y: 1)
+            .accessibilityLabel(label)
+            .accessibilityValue(pressed ? "押下中" : "")
     }
 
     private func stickButton(label: String, pressed: Bool) -> some View {
@@ -485,6 +506,8 @@ struct GamepadVisualizerView: View {
             .frame(width: stickSize, height: stickSize)
             .background(pressed ? Color.accentColor : Color(.systemGray5), in: Circle())
             .foregroundStyle(pressed ? .white : .secondary)
+            .accessibilityLabel(label)
+            .accessibilityValue(pressed ? "押下中" : "")
     }
 }
 
@@ -539,7 +562,7 @@ private struct GamepadSettingsSheet: View {
                 // このアプリについて
                 Section {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("GIME")
+                        Text("GiME")
                             .font(.headline)
                         Text(Self.versionString)
                             .font(.caption)
@@ -548,6 +571,7 @@ private struct GamepadSettingsSheet: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    .accessibilityElement(children: .combine)
                 } header: {
                     Text("このアプリについて")
                 }

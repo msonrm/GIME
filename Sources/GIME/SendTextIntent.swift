@@ -7,7 +7,7 @@ import AppIntents
 /// 後続アクション（翻訳、SNS 投稿等）にチェーンできる。
 struct SendTextIntent: AppIntent {
     static let title: LocalizedStringResource = "テキストを取得"
-    static let description: IntentDescription = "GIME エディタのテキスト全文を取得します"
+    static let description: IntentDescription = "GiME エディタのテキスト全文を取得します"
     static let openAppWhenRun: Bool = true
 
     /// UserDefaults のキー（App.swift と共有）
