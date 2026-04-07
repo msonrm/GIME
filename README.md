@@ -104,6 +104,12 @@ GCController
 
 詳細仕様は [SPEC.md](Sources/GIME/SPEC.md) を参照。
 
+## 将来構想
+
+- **カメラモード**: iPad のカメラで Hand Pose Detection を行い、空箱を持った手のジェスチャーでゲームパッド入力を代替するバーチャルコントローラー（プロトタイプ実装済み）
+- **Apple Vision Pro 対応**: ハンドトラッキングで同じ入力パイプラインを visionOS に移植
+- **AR Box Keyboard**: 空箱の表面にキーボードレイアウトを AR オーバーレイで投影する仮想キーボード — [コンセプト文書](docs/ar-box-keyboard-concept.md)
+
 ## Acknowledgements
 
 - [KeyLogicKit](https://github.com/msonrm/KeyLogicKit) — IME エンジンライブラリ (MIT License, Copyright (c) 2026 Narumi Masao)
