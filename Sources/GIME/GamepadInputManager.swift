@@ -857,13 +857,18 @@ final class GamepadInputManager {
         // === 받침巻き戻し: 母音が来たら直前の받침を取り消す ===
         // LB が先に到着して誤ったパッチムが適用された場合、
         // 母音到着で新音節と判断し、パッチムを元に戻す。
+        // ただし겹받침（patchimRollbackCoda != nil）は巻き戻さない。
+        // 겹받침は明示的に2回の받침入力で形成されるため、
+        // 新音節の onset が別途指定されている以上、分解すべきでない。
         if vowelNow && patchimRollbackActive {
-            koreanComposer.revertCoda(to: patchimRollbackCoda)
-            if let onset = koreanComposer.currentOnset,
-               let nucleus = koreanComposer.currentNucleus {
-                let coda = koreanComposer.currentCoda ?? 0
-                let code = 0xAC00 + (onset * 21 + nucleus) * 28 + coda
-                onDirectInsert?(String(Character(UnicodeScalar(code)!)), 1)
+            if patchimRollbackCoda == nil {
+                koreanComposer.revertCoda(to: nil)
+                if let onset = koreanComposer.currentOnset,
+                   let nucleus = koreanComposer.currentNucleus {
+                    let coda = koreanComposer.currentCoda ?? 0
+                    let code = 0xAC00 + (onset * 21 + nucleus) * 28 + coda
+                    onDirectInsert?(String(Character(UnicodeScalar(code)!)), 1)
+                }
             }
             patchimRollbackActive = false
         }
