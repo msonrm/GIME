@@ -1,4 +1,24 @@
 import SwiftUI
+import Observation
+
+/// OSC 受信ログの状態保持クラス。`@Sendable` クロージャから MainActor 越しに
+/// 更新できるよう、MainActor 分離した @Observable として独立させている。
+@Observable
+@MainActor
+final class OscReceiverLogStore {
+    var lines: [String] = []
+
+    func append(_ line: String) {
+        lines.insert(line, at: 0)
+        if lines.count > 50 {
+            lines.removeLast(lines.count - 50)
+        }
+    }
+
+    func clear() {
+        lines.removeAll()
+    }
+}
 
 /// VRChat OSC 連携の設定画面。
 ///
@@ -15,7 +35,7 @@ struct VrChatSettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var statusMessage: String?
-    @State private var logLines: [String] = []
+    @State private var logStore = OscReceiverLogStore()
     @State private var receiver: OscReceiver?
 
     var body: some View {
@@ -163,14 +183,14 @@ struct VrChatSettingsView: View {
 
     @ViewBuilder
     private var logSection: some View {
-        if settings.receiverEnabled || !logLines.isEmpty {
+        if settings.receiverEnabled || !logStore.lines.isEmpty {
             Section {
-                if logLines.isEmpty {
+                if logStore.lines.isEmpty {
                     Text("受信待機中…")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(Array(logLines.enumerated()), id: \.offset) { _, line in
+                    ForEach(Array(logStore.lines.enumerated()), id: \.offset) { _, line in
                         Text(line)
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(
@@ -179,7 +199,7 @@ struct VrChatSettingsView: View {
                             .lineLimit(3)
                     }
                     Button("ログクリア") {
-                        logLines.removeAll()
+                        logStore.clear()
                     }
                     .font(.caption)
                 }
@@ -235,10 +255,19 @@ struct VrChatSettingsView: View {
         stopReceiver()
         guard settings.receiverEnabled else { return }
         let port = settings.receiverPort
-        let r = OscReceiver(port: port) { [weak settings] event in
-            _ = settings // capture for liveness
+        // `logStore` は @MainActor クラス参照で Sendable のため @Sendable
+        // クロージャに安全にキャプチャできる。
+        let store = logStore
+        let r = OscReceiver(port: port) { event in
+            let line: String
+            switch event {
+            case .received(let message, let fromHost):
+                line = "← \(message.debugDescription) (from \(fromHost))"
+            case .error(let reason):
+                line = "! \(reason)"
+            }
             Task { @MainActor in
-                appendLog(for: event)
+                store.append(line)
             }
         }
         r.start()
@@ -248,20 +277,6 @@ struct VrChatSettingsView: View {
     private func stopReceiver() {
         receiver?.stop()
         receiver = nil
-    }
-
-    private func appendLog(for event: OscReceiver.Event) {
-        let line: String
-        switch event {
-        case .received(let message, let fromHost):
-            line = "← \(message.debugDescription) (from \(fromHost))"
-        case .error(let reason):
-            line = "! \(reason)"
-        }
-        logLines.insert(line, at: 0)
-        if logLines.count > 50 {
-            logLines.removeLast(logLines.count - 50)
-        }
     }
 
     // MARK: - ヘルパー
