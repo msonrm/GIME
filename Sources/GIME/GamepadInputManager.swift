@@ -112,6 +112,11 @@ final class GamepadInputManager {
     /// Start+Back 同時押しコールバック（テキスト全文を共有）
     var onShareText: (() -> Void)?
 
+    /// idle 時の LS 押下（`.confirmOrNewline` → 改行分岐）を横取りするコールバック。
+    /// `true` を返すと標準の改行挿入をスキップする。
+    /// VRChat OSC モードで「LS=chatbox 確定送信」を実現するために使用する。
+    var onIdleConfirm: (() -> Bool)?
+
     // MARK: - テキスト操作モード コールバック
 
     /// 文フォーカス移動（←↑=前文頭、→↓=次文頭）
@@ -1166,6 +1171,8 @@ final class GamepadInputManager {
                 if case .partial = result {
                     // 部分確定: 残りはまだ composing 中
                 }
+            } else if onIdleConfirm?() == true {
+                // 横取り済み（VRChat OSC モードの chatbox 送信等）
             } else {
                 // 通常状態: 改行
                 onDirectInsert?("\n", 0)

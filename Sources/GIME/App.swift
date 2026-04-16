@@ -15,6 +15,8 @@ struct ContentView: View {
     @State private var inputManager = InputManager()
     @State private var gamepadInput: GamepadInputManager?
     @State private var pinyinEngine = PinyinEngine()
+    @State private var vrChatSettings = VrChatOscSettings()
+    @State private var vrChatOutput: VrChatOscOutput?
 
     // ゲームパッド専用アプリだが、キーボード入力も受け付ける（フォールバック）
     private var keyRouter: KeyRouter {
@@ -99,7 +101,8 @@ struct ContentView: View {
                 // ゲームパッドビジュアライザ（画面下ぴったり）
                 if let gp = gamepadInput, gp.isConnected {
                     GamepadVisualizerView(
-                        gamepadInput: gp
+                        gamepadInput: gp,
+                        vrChatSettings: vrChatSettings
                     )
                     .padding([.horizontal, .top])
                     .background(.ultraThinMaterial)
@@ -236,10 +239,38 @@ struct ContentView: View {
             }
             pinyinEngine.load()
             gp.pinyinEngine = pinyinEngine
+
+            // MARK: VRChat OSC コールバック（有効時のみ発火）
+            gp.onIdleConfirm = {
+                // VRChat モード ON + テキスト非空 → chatbox に確定送信してクリア
+                guard vrChatSettings.enabled, let out = vrChatOutput else { return false }
+                let body = text
+                guard !body.isEmpty else { return false }
+                out.commit(body)
+                text = ""
+                cursorLocation = 0
+                selectionLength = 0
+                return true
+            }
+
             gamepadInput = gp
+            refreshVrChatOutput()
         }
         .onChange(of: text) { _, newValue in
             UserDefaults.standard.set(newValue, forKey: SendTextIntent.editorTextKey)
+            sendVrChatDraftIfNeeded()
+        }
+        .onChange(of: chatboxDraft) { _, _ in
+            sendVrChatDraftIfNeeded()
+        }
+        .onChange(of: vrChatSettings.enabled) { _, _ in
+            refreshVrChatOutput()
+        }
+        .onChange(of: vrChatSettings.host) { _, _ in
+            refreshVrChatOutput()
+        }
+        .onChange(of: vrChatSettings.port) { _, _ in
+            refreshVrChatOutput()
         }
         .onChange(of: gamepadInput?.operationMode) { _, newMode in
             if newMode == .textOperation {
@@ -248,6 +279,46 @@ struct ContentView: View {
                 textOpController?.onModeExit()
             }
         }
+    }
+
+    // MARK: - VRChat OSC 連携
+
+    /// chatbox に送る現在の下書きテキスト。
+    /// `text`（確定済み）+ 現在の composing 状態を結合したもの。
+    private var chatboxDraft: String {
+        let composing: String
+        switch gamepadInput?.currentMode {
+        case .japanese:
+            composing = inputManager.rawKanaText
+        case .chineseSimplified:
+            composing = gamepadInput?.pinyinBuffer ?? ""
+        case .chineseTraditional:
+            composing = gamepadInput?.zhuyinDisplayBuffer ?? ""
+        default:
+            composing = ""
+        }
+        return text + composing
+    }
+
+    /// 設定を元に `VrChatOscOutput` を起動/更新/停止する。
+    private func refreshVrChatOutput() {
+        if vrChatSettings.enabled {
+            if let out = vrChatOutput {
+                out.updateTarget(host: vrChatSettings.host, port: vrChatSettings.port)
+            } else {
+                let sender = OscSender(host: vrChatSettings.host, port: vrChatSettings.port)
+                vrChatOutput = VrChatOscOutput(sender: sender)
+            }
+        } else {
+            vrChatOutput?.close()
+            vrChatOutput = nil
+        }
+    }
+
+    /// VRChat モード有効時、現在の下書きを chatbox に debounce 付きで送信する。
+    private func sendVrChatDraftIfNeeded() {
+        guard vrChatSettings.enabled, let out = vrChatOutput else { return }
+        out.sendComposingText(chatboxDraft)
     }
 
     /// 共有シートを表示する

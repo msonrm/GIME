@@ -4,8 +4,10 @@ import SwiftUI
 /// Web 版 GamepadVisualizer.tsx の Swift 移植
 struct GamepadVisualizerView: View {
     let gamepadInput: GamepadInputManager
+    @Bindable var vrChatSettings: VrChatOscSettings
 
     @State private var showSettings = false
+    @State private var showVrChatSettings = false
     @State private var isCollapsed = false
 
     private var mode: GamepadInputMode { gamepadInput.currentMode }
@@ -153,6 +155,24 @@ struct GamepadVisualizerView: View {
                         .accessibilityLabel("テキスト操作モード")
                 }
 
+                // VRChat OSC モードバッジ
+                if vrChatSettings.enabled {
+                    Button {
+                        showVrChatSettings = true
+                    } label: {
+                        Label("VRChat OSC", systemImage: "paperplane.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                            .labelStyle(.titleAndIcon)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(.purple)
+                            .foregroundStyle(.white)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("VRChat OSC モード 有効。タップして設定を開く")
+                }
+
                 // 中国語モード: バッファ表示（繁体字は注音、簡体字はピンイン）
                 if (mode == .chineseSimplified || mode == .chineseTraditional) && !gamepadInput.pinyinBuffer.isEmpty {
                     let bufferText = mode == .chineseTraditional ? gamepadInput.zhuyinDisplayBuffer : gamepadInput.pinyinBuffer
@@ -251,8 +271,20 @@ struct GamepadVisualizerView: View {
         }
         .sheet(isPresented: $showSettings) {
             GamepadSettingsSheet(
-                gamepadInput: gamepadInput
+                gamepadInput: gamepadInput,
+                vrChatSettings: vrChatSettings,
+                onOpenVrChat: {
+                    showSettings = false
+                    // 少し遅延させてシートの切替を安定させる
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 300_000_000)
+                        showVrChatSettings = true
+                    }
+                }
             )
+        }
+        .sheet(isPresented: $showVrChatSettings) {
+            VrChatSettingsView(settings: vrChatSettings)
         }
     }
 
@@ -505,12 +537,38 @@ struct GamepadVisualizerView: View {
 /// ビジュアライザ設定シート（言語サイクル設定）
 private struct GamepadSettingsSheet: View {
     let gamepadInput: GamepadInputManager
+    let vrChatSettings: VrChatOscSettings
+    let onOpenVrChat: () -> Void
 
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             Form {
+                // VRChat OSC エントリ
+                Section {
+                    Button {
+                        onOpenVrChat()
+                    } label: {
+                        HStack {
+                            Label("VRChat OSC 連携", systemImage: "paperplane")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Text(vrChatSettings.enabled ? "ON" : "OFF")
+                                .font(.caption)
+                                .foregroundStyle(vrChatSettings.enabled ? .purple : .secondary)
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityLabel("VRChat OSC 連携設定を開く。現在\(vrChatSettings.enabled ? "有効" : "無効")")
+                } header: {
+                    Text("外部連携")
+                } footer: {
+                    Text("VRChat の chatbox に OSC 経由で入力を送信できます。")
+                }
+
                 // 言語サイクル設定セクション
                 Section {
                     ForEach(GamepadInputMode.allCases, id: \.self) { mode in
