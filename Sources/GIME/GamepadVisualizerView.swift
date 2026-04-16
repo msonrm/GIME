@@ -71,7 +71,10 @@ struct GamepadVisualizerView: View {
             if gamepadInput.englishSmartCaps { return "Caps" }
             if gamepadInput.englishShiftNext { return "Shift" }
             return "shift"
-        case .korean: return "ㅇ"
+        case .korean:
+            if gamepadInput.koreanJamoLock { return "LOCK" }    // 持続モード（長押しで toggle）
+            if gamepadInput.koreanSmartJamo { return "자모" }   // 一時モード（空白/句読点で解除）
+            return "ㅇ"                                          // 通常: 単押しで ㅇ받침
         case .chineseSimplified, .chineseTraditional: return ""
         case .japanese: return "拗音"
         }
@@ -105,7 +108,9 @@ struct GamepadVisualizerView: View {
         switch mode {
         case .japanese: return "濁点"
         case .english: return "'"
-        case .korean: return "ㅋㅌ"
+        case .korean:
+            // 자모 모드: ↑ = 直前子音 평→격→경 サイクル
+            return gamepadInput.isKoreanJamoMode ? "ㄱㅋㄲ" : "ㅋㅌ"
         case .chineseSimplified, .chineseTraditional: return ""
         }
     }
@@ -125,7 +130,9 @@ struct GamepadVisualizerView: View {
         switch mode {
         case .japanese: return "ー"
         case .english: return "/"
-        case .korean: return "ㅘㅝ"
+        case .korean:
+            // 자모 모드: → = 直前 jamo の連打（연타）
+            return gamepadInput.isKoreanJamoMode ? "연타" : "ㅘㅝ"
         case .chineseSimplified, .chineseTraditional: return "、"
         }
     }

@@ -264,3 +264,53 @@ let koreanCodaCycle: [Int: Int] = [
     19: 20, 20: 19,         // ㅅ(19) → ㅆ(20) → ㅅ
     22: 23, 23: 22,         // ㅈ(22) → ㅊ(23) → ㅈ（ㅉ는 종성 없음）
 ]
+
+// MARK: - 자모 모드（子音・母音単体入力）用 互換 Jamo テーブル
+
+/// 초성 (onset) index (0-18) → Unicode Compatibility Jamo コードポイント
+///
+/// Unicode の Compatibility Jamo ブロック（U+3131..U+314E）は겹자음を挟むため
+/// 連続していない。table で明示的にマップする。
+/// これは合成用の Hangul Jamo (U+1100..) ではなく、ユーザーが
+/// 「ㅋㅋㅋ」のように単独で読める互換字母コードポイント。
+let koreanCompatJamoOnsetCodes: [Int] = [
+    0x3131, // 0: ㄱ
+    0x3132, // 1: ㄲ
+    0x3134, // 2: ㄴ
+    0x3137, // 3: ㄷ
+    0x3138, // 4: ㄸ
+    0x3139, // 5: ㄹ
+    0x3141, // 6: ㅁ
+    0x3142, // 7: ㅂ
+    0x3143, // 8: ㅃ
+    0x3145, // 9: ㅅ
+    0x3146, // 10: ㅆ
+    0x3147, // 11: ㅇ
+    0x3148, // 12: ㅈ
+    0x3149, // 13: ㅉ
+    0x314A, // 14: ㅊ
+    0x314B, // 15: ㅋ
+    0x314C, // 16: ㅌ
+    0x314D, // 17: ㅍ
+    0x314E, // 18: ㅎ
+]
+
+/// 초성 index → 互換 Jamo 文字（자모 모드で単体出力する文字）
+func koreanCompatJamoOnset(_ onsetIndex: Int) -> String {
+    guard onsetIndex >= 0,
+          onsetIndex < koreanCompatJamoOnsetCodes.count,
+          let scalar = UnicodeScalar(koreanCompatJamoOnsetCodes[onsetIndex]) else {
+        return "?"
+    }
+    return String(Character(scalar))
+}
+
+/// 중성 (nucleus) index (0-20) → 互換 Jamo 文字
+/// U+314F (ㅏ) から U+3163 (ㅣ) まで 21 文字が連続しているので単純加算。
+func koreanCompatJamoNucleus(_ nucleusIndex: Int) -> String {
+    guard nucleusIndex >= 0, nucleusIndex <= 20,
+          let scalar = UnicodeScalar(0x314F + nucleusIndex) else {
+        return "?"
+    }
+    return String(Character(scalar))
+}

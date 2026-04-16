@@ -178,6 +178,7 @@ final class GamepadInputManager {
 
 
     private var prevRB = false
+    private var prevLB = false
     private var prevDpadUp = false
     private var prevDpadDown = false
     private var prevDpadLeft = false
@@ -202,6 +203,36 @@ final class GamepadInputManager {
     private var allReleasedSinceSyllable = true  // 音節入力後に全ボタンリリース済みか
     private var patchimRollbackCoda: Int?  // 받침適用前のcoda値（巻き戻し用）
     private var patchimRollbackActive = false  // 巻き戻し可能な받침が適用中か
+
+    // 韓国語 자모 모드（子音・母音単体入力）
+    /// 持続モード: LT 長押しでトグル。明示的に exit するまで維持される。
+    private(set) var koreanJamoLock: Bool = false
+    /// 一時モード: LT 2連続短押しで ON。空白/句読点/削除/カーソル/LS/モード切替で自動 OFF。
+    private(set) var koreanSmartJamo: Bool = false
+    /// 자모 모드中か（Lock or Smart）
+    var isKoreanJamoMode: Bool { koreanJamoLock || koreanSmartJamo }
+
+    // 韓国語 LT 長押し・2連続タップ検出（英語モードと対称構造）
+    private var koreanLTHolding = false
+    private var koreanLTPressTime: TimeInterval = 0
+    private var lastKoreanLTReleaseTime: TimeInterval = 0
+    /// LT 押下時点で ㅇ받침 条件を満たしていたか。LT 保持中に他ボタンが絡んだら破棄
+    private var koreanLTShortTapEligible = false
+
+    // 자모 모드内部: 直前 emit した jamo の追跡
+    /// 直前 emit した jamo 文字（右スティック → の連打用 + ↑ のサイクル用）
+    private var lastJamoText: String?
+    /// 直前 emit が子音ならその onset index、母音なら nil
+    private var lastJamoOnsetIndex: Int?
+    /// 子音 chord の eager output + chord window refine 用
+    private var jamoEagerText: String?
+    private var jamoEagerLen: Int = 0
+    private var jamoEagerTime: TimeInterval = 0
+    /// LB 単独押下中フラグ。LB を「修飾子」として扱うため、LB press edge では
+    /// 即時 emit せず、このフラグを立てて D-pad 方向入力を待つ。
+    /// - D-pad 方向エッジが来たら: フラグ解除、D-pad 側で row(LB 込み) を emit
+    /// - LB release edge で立ったままなら: そこで ㅁ (row 5) を emit
+    private var jamoLbOnlyPending: Bool = false
 
     // 中国語モード状態
     private(set) var pinyinBuffer: String = ""
@@ -428,10 +459,16 @@ final class GamepadInputManager {
                 englishSmartCaps = false
             }
         case .korean:
-            // ↑ 子音サイクル（平音→激音→濃音）
-            if rStickUp && !prevRStickUp { handleKoreanOnsetCycle() }
-            // → 複合母音（ㅏ/ㅓ付加: ㅗ→ㅘ, ㅜ→ㅝ）
-            if rStickRight && !prevRStickRight { handleKoreanVowelAddAEo() }
+            if isKoreanJamoMode {
+                // 자모 모드: ↑ = 直前子音を 평→격→경 サイクル, → = 直前 jamo の連打
+                if rStickUp && !prevRStickUp { handleJamoOnsetCycle() }
+                if rStickRight && !prevRStickRight { handleJamoRepeat() }
+            } else {
+                // ↑ 子音サイクル（平音→激音→濃音）
+                if rStickUp && !prevRStickUp { handleKoreanOnsetCycle() }
+                // → 複合母音（ㅏ/ㅓ付加: ㅗ→ㅘ, ㅜ→ㅝ）
+                if rStickRight && !prevRStickRight { handleKoreanVowelAddAEo() }
+            }
         case .chineseSimplified, .chineseTraditional:
             // → 顿号（バッファあれば先に先頭候補を確定）
             if rStickRight && !prevRStickRight {
@@ -443,7 +480,10 @@ final class GamepadInputManager {
         // R🕹↓ 句読点・空白（全言語共通の多段タップ）
         if rStickDown && !prevRStickDown {
             // 言語別の前処理
-            if currentMode == .korean { koreanComposer.commit() }
+            if currentMode == .korean {
+                commitKoreanComposer()
+                releaseKoreanSmartJamo()
+            }
             if isChinese { confirmPinyinTopCandidate() }
             if currentMode == .english { englishSmartCaps = false }
 
@@ -527,6 +567,15 @@ final class GamepadInputManager {
             if lStickLeft && !prevLStickLeft { onCursorMove?(-1) }
         } else if currentMode == .english || currentMode == .korean || isChinese {
             // 英語/韓国語/中国語（候補なし）: 常にカーソル移動（上下左右）
+            let lstickEdge = (lStickRight && !prevLStickRight) ||
+                (lStickLeft && !prevLStickLeft) ||
+                (lStickUp && !prevLStickUp) ||
+                (lStickDown && !prevLStickDown)
+            if currentMode == .korean && lstickEdge {
+                // カーソル移動の前に韓国語の合成状態を確定 + Smart Jamo 解除
+                commitKoreanComposer()
+                releaseKoreanSmartJamo()
+            }
             if lStickRight && !prevLStickRight { onCursorMove?(1) }
             if lStickLeft && !prevLStickLeft { onCursorMove?(-1) }
             if lStickUp && !prevLStickUp { onCursorMoveVertical?(-1) }
@@ -578,7 +627,10 @@ final class GamepadInputManager {
                 if currentMode == .japanese {
                     executeAction(.space)
                 } else {
-                    if currentMode == .korean { koreanComposer.commit() }
+                    if currentMode == .korean {
+                        commitKoreanComposer()
+                        releaseKoreanSmartJamo()
+                    }
                     if isChinese { confirmPinyinTopCandidate() }
                     onDirectInsert?(" ", 0)
                 }
@@ -620,9 +672,13 @@ final class GamepadInputManager {
             englishSmartCaps = false
             rStickDownTapCount = 0
             rStickDownLastTime = 0
-            koreanComposer.commit()
-            patchimRollbackActive = false
-            allReleasedSinceSyllable = true
+            commitKoreanComposer()
+            // モード切替で 자모 모드も全リセット（Lock も解除）
+            koreanJamoLock = false
+            koreanSmartJamo = false
+            resetJamoState()
+            koreanLTHolding = false
+            koreanLTShortTapEligible = false
             clearPinyinState()
             // 中国語モードの variant を同期
             if currentMode == .chineseSimplified {
@@ -638,6 +694,7 @@ final class GamepadInputManager {
         prevLT = ltNow
         prevRT = rtNow
         prevRB = gp.rb
+        prevLB = gp.lb
         prevDpadUp = gp.dpadUp
         prevDpadDown = gp.dpadDown
         prevDpadLeft = gp.dpadLeft
@@ -850,6 +907,62 @@ final class GamepadInputManager {
 
     // MARK: - 韓国語入力
 
+    /// 韓国語の合成状態を確定し、관련 transient フラグをまとめてリセットする。
+    /// `koreanComposer.commit()` を直接呼ぶ代わりに常にこれを使う。
+    private func commitKoreanComposer() {
+        koreanComposer.commit()
+        patchimRollbackActive = false
+        patchimRollbackCoda = nil
+        allReleasedSinceSyllable = true
+    }
+
+    /// 자모 모드の内部状態（eager / 連打基準 / LB 修飾子保留）をクリアする。
+    private func resetJamoState() {
+        lastJamoText = nil
+        lastJamoOnsetIndex = nil
+        jamoEagerText = nil
+        jamoLbOnlyPending = false
+    }
+
+    /// 「jamo 連打の流れを断ち切る」アクション（空白・句読点・削除・カーソル
+    /// 移動・改行・モード切替）で Smart Jamo を解除する。Lock はそのまま維持。
+    /// Lock 中の連打 tracking もここでリセットされるので呼ぶだけでよい。
+    private func releaseKoreanSmartJamo() {
+        if koreanSmartJamo {
+            koreanSmartJamo = false
+        }
+        resetJamoState()
+    }
+
+    /// LT 長押し → Jamo Lock トグル。
+    /// ON 時は composing を確定、Smart Jamo は明示的にクリア（Lock 優先）。
+    private func toggleKoreanJamoLock() {
+        if koreanJamoLock {
+            koreanJamoLock = false
+            koreanSmartJamo = false
+            resetJamoState()
+        } else {
+            commitKoreanComposer()
+            koreanJamoLock = true
+            koreanSmartJamo = false
+            resetJamoState()
+        }
+    }
+
+    /// LT 2連続短押し → Smart Jamo トグル。
+    /// Lock が ON の間は no-op（Lock を優先、exit は長押しに統一）。
+    private func toggleKoreanSmartJamo() {
+        if koreanJamoLock { return }
+        if koreanSmartJamo {
+            koreanSmartJamo = false
+            resetJamoState()
+        } else {
+            commitKoreanComposer()
+            koreanSmartJamo = true
+            resetJamoState()
+        }
+    }
+
     private func handleKoreanInput(_ gp: GamepadSnapshot, row: Int, vowel: VowelButton?,
                                    ltNow: Bool, rtNow: Bool, now: TimeInterval) {
         let vowelNow = vowel != nil
@@ -858,6 +971,20 @@ final class GamepadInputManager {
             .filter { $0 }.count
         let dpadActive = consonantCount > 0
         let prevDpadActive = prevConsonantCount > 0
+
+        // === LT 処理（자모 モード切替 + ㅇ받침）===
+        // 英語モードと対称: 長押し=Jamo Lock トグル、2連続短押し=Smart Jamo トグル、
+        // 単押し=ㅇ받침（条件満たす時のみ）。合成/자모 両モードで共通処理。
+        handleKoreanLT(vowelNow: vowelNow, dpadActive: dpadActive, ltNow: ltNow, now: now)
+
+        // === 자모 モード中は合成をバイパスして子音/母音単体入力 ===
+        // ※ 右スティック ↑→ の自모-mode 専用処理は handleSnapshot 側で分岐済み。
+        if isKoreanJamoMode {
+            handleKoreanJamoInput(gp: gp, row: row, vowel: vowel, rtNow: rtNow, now: now)
+            // composer 系の state を触らずに早期 return。母音同時押し合成パスを skip。
+            prevConsonantCount = consonantCount
+            return
+        }
 
         // === 받침巻き戻し: 母音が来たら直前の받침を取り消す ===
         // LB が先に到着して誤ったパッチムが適用された場合、
@@ -958,14 +1085,7 @@ final class GamepadInputManager {
             }
         }
 
-        // LT エッジ → ㅇ받침即発火
-        if ltNow && !prevLT && !vowelNow && !dpadActive && allReleasedSinceSyllable {
-            if koreanComposer.isComposing && koreanComposer.currentCoda == nil {
-                let codaIdx = koreanCodaForRow[0]
-                handleKoreanPatchim(codaIndex: codaIdx, codaRow: 0)
-                allReleasedSinceSyllable = false
-            }
-        }
+        // LT 処理は handleKoreanLT() に集約済み（ㅇ받침は release edge で発火）。
 
         // === RT: 単押しリリースで複合母音（ㅣ付加）、同時押しは y系（上で処理済み） ===
         if rtNow && !prevRT { rtUsed = false }
@@ -1016,6 +1136,197 @@ final class GamepadInputManager {
               let newNucleus = koreanNucleusAddAEo[currentNucleus],
               let output = koreanComposer.modifyNucleus(to: newNucleus) else { return }
         onDirectInsert?(output.text, output.replaceCount)
+    }
+
+    // MARK: - 韓国語 LT 処理（ㅇ받침 + 자모 모드切替）
+
+    /// 韓国語モードの LT ボタン処理。
+    ///
+    /// - 長押し（≥ longPressThreshold）: Jamo Lock トグル。ㅇ받침は発火しない。
+    /// - 2連続短押し（≤ doubleTapWindow）: Smart Jamo トグル。
+    ///   ※ 1 回目の短押しでは ㅇ받침 / ㅇ jamo が発火する副作用あり（ユーザー合意済み）。
+    /// - 単独短押し: ㅇ받침（条件を満たす時のみ）/ 자모 모드中は ㅇ jamo。
+    ///   release edge で発火する。
+    private func handleKoreanLT(vowelNow: Bool, dpadActive: Bool, ltNow: Bool, now: TimeInterval) {
+        // 押下エッジ: タイマー開始 + ㅇ받침適格性を capture
+        if ltNow && !prevLT {
+            koreanLTPressTime = now
+            koreanLTHolding = true
+            // 押下時点で ㅇ받침 の条件を満たしていたか
+            // （後の他ボタン絡みで破棄される可能性あり）
+            koreanLTShortTapEligible = !vowelNow && !dpadActive &&
+                allReleasedSinceSyllable &&
+                !isKoreanJamoMode &&
+                koreanComposer.isComposing &&
+                koreanComposer.currentCoda == nil
+        }
+
+        // 保持中に他ボタンが絡んだら短押し ㅇ받침 を破棄
+        if ltNow && koreanLTHolding && (vowelNow || dpadActive) {
+            koreanLTShortTapEligible = false
+        }
+
+        // 長押し閾値到達: Jamo Lock トグル。ㅇ받침は発火させない（holding を consume）
+        if ltNow && koreanLTHolding && (now - koreanLTPressTime) >= longPressThreshold {
+            toggleKoreanJamoLock()
+            koreanLTHolding = false
+            koreanLTShortTapEligible = false
+        }
+
+        // リリースエッジ: 短押し（長押し未達）の処理
+        if !ltNow && prevLT {
+            if koreanLTHolding {
+                let sinceLastRelease = now - lastKoreanLTReleaseTime
+                if sinceLastRelease < doubleTapWindow {
+                    // 2 回目の短押し → Smart Jamo トグル
+                    // 1 回目で発火した ㅇ받침 / ㅇ jamo はテキストに残る（許容された副作用）
+                    toggleKoreanSmartJamo()
+                } else if isKoreanJamoMode {
+                    // 자모 모드中: LT 単押し = ㅇ 互換 jamo 単体出力。
+                    // Row 0 (ㅇ) は D-pad/LB のどれも押さない位置なので
+                    // 通常の chord 経路では入力不可。LT にその役割を与える。
+                    let jamoChar = koreanCompatJamoOnset(11)  // ㅇ
+                    onDirectInsert?(jamoChar, 0)
+                    lastJamoText = jamoChar
+                    lastJamoOnsetIndex = 11
+                    jamoEagerText = nil
+                } else if koreanLTShortTapEligible {
+                    // 音節合成中: ㅇ받침
+                    let codaIdx = koreanCodaForRow[0]  // ㅇ
+                    if case .added(let output) = koreanComposer.inputPatchim(codaIndex: codaIdx, codaRow: 0) {
+                        patchimRollbackCoda = nil
+                        patchimRollbackActive = true
+                        onDirectInsert?(output.text, output.replaceCount)
+                        allReleasedSinceSyllable = false
+                    }
+                }
+            }
+            koreanLTHolding = false
+            koreanLTShortTapEligible = false
+            lastKoreanLTReleaseTime = now
+        }
+    }
+
+    // MARK: - 韓国語 자모 모드（子音・母音単体入力モード）
+
+    /// 자모 모드中の入力処理。
+    ///
+    /// - D-pad 方向キー単独: 子音単体（互換 Jamo）。eager + chord window で refine。
+    /// - LB 単独: 押下エッジでは emit せず、release edge で ㅁ を emit（修飾子扱い）。
+    /// - LB + D-pad: D-pad 側で row(LB 込み) を解決して emit。
+    /// - フェイスボタン単独: 母音単体（基本層 / RT シフト層）。
+    /// - 右スティック ↑→ は handleSnapshot 側で振り分け済み。
+    private func handleKoreanJamoInput(gp: GamepadSnapshot, row: Int, vowel: VowelButton?,
+                                       rtNow: Bool, now: TimeInterval) {
+        let vowelNow = vowel != nil
+
+        // D-pad 方向キーのみのアクティビティ（LB を含まない）。LB は修飾子扱いなので
+        // 方向キー edge でのみ emit する。
+        let dpadDirActive = gp.dpadUp || gp.dpadDown || gp.dpadLeft || gp.dpadRight
+        let prevDpadDirActive = prevDpadUp || prevDpadDown || prevDpadLeft || prevDpadRight
+        let dpadDirChanged = (gp.dpadUp != prevDpadUp) ||
+            (gp.dpadDown != prevDpadDown) ||
+            (gp.dpadLeft != prevDpadLeft) ||
+            (gp.dpadRight != prevDpadRight)
+        let lbAdded = gp.lb && !prevLB
+        let lbReleased = !gp.lb && prevLB
+
+        // --- LB 修飾子処理（「LB 単独 = ㅁ」は LB release 時に遅延発火）---
+        // LB press edge (まだ方向キー無し) → 単独ペンディング
+        if lbAdded && !dpadDirActive {
+            jamoLbOnlyPending = true
+        }
+        // 保持中に方向キーが入ったらペンディング解除（D-pad 側で emit に委ねる）
+        if gp.lb && dpadDirActive {
+            jamoLbOnlyPending = false
+        }
+        // LB release edge: 方向キーを一度も押さずに離された → ㅁ を emit
+        if lbReleased && jamoLbOnlyPending {
+            let onsetIdx = koreanOnsetForRow[5]  // ㅁ
+            let jamoChar = koreanCompatJamoOnset(onsetIdx)
+            onDirectInsert?(jamoChar, 0)
+            lastJamoText = jamoChar
+            lastJamoOnsetIndex = onsetIdx
+            jamoEagerText = nil
+            jamoLbOnlyPending = false
+        }
+        if lbReleased {
+            jamoLbOnlyPending = false
+        }
+
+        // --- 子音 D-pad 方向キー: 押下エッジ or swap/lbAdded で emit ---
+        // LB 単独の emit は上で処理済み。ここでは方向キーが絡む場合のみ扱う。
+        if dpadDirActive {
+            let onsetIdx = koreanOnsetForRow[row]
+            let jamoChar = koreanCompatJamoOnset(onsetIdx)
+            if !prevDpadDirActive {
+                // 方向キーの新規押下（LB が先行していても row は LB 込みで解決済み）
+                onDirectInsert?(jamoChar, 0)
+                jamoEagerText = jamoChar
+                jamoEagerLen = (jamoChar as NSString).length
+                jamoEagerTime = now
+                lastJamoText = jamoChar
+                lastJamoOnsetIndex = onsetIdx
+            } else if dpadDirChanged || lbAdded {
+                // 方向キー swap、あるいは D-pad 保持中に LB 後着 → chord refine。
+                // （LB 単独リリースや他の row 変化では refine しない: 直前の選択を尊重）
+                let elapsed = now - jamoEagerTime
+                if elapsed < chordWindow, jamoEagerText != nil {
+                    onDirectInsert?(jamoChar, jamoEagerLen)
+                } else {
+                    onDirectInsert?(jamoChar, 0)
+                }
+                jamoEagerText = jamoChar
+                jamoEagerLen = (jamoChar as NSString).length
+                jamoEagerTime = now
+                lastJamoText = jamoChar
+                lastJamoOnsetIndex = onsetIdx
+            }
+        }
+        // 方向キー全リリースで eager 確定
+        if !dpadDirActive && prevDpadDirActive {
+            jamoEagerText = nil
+        }
+
+        // --- 母音: フェイスボタンのエッジで emit（単独 jamo なので chord 不要）---
+        if vowelNow, prevVowel == nil {
+            let v = vowel!.rawValue
+            let nucleusIdx = rtNow ? koreanNucleusShifted[v] : koreanNucleusBase[v]
+            let jamoChar = koreanCompatJamoNucleus(nucleusIdx)
+            onDirectInsert?(jamoChar, 0)
+            lastJamoText = jamoChar
+            lastJamoOnsetIndex = nil
+            // 母音が来たら子音 eager は終了
+            jamoEagerText = nil
+        }
+    }
+
+    /// 자모 모드: 直前 emit した jamo を 1 字追加（ㅋㅋㅋㅋ 連打用）。
+    /// handleSnapshot の右スティック → の분岐から呼ばれる。
+    private func handleJamoRepeat() {
+        guard let last = lastJamoText else { return }
+        onDirectInsert?(last, 0)
+        // lastJamoText / lastJamoOnsetIndex はそのまま（連打続行可能）。
+        // ↑ サイクルを直後に押した場合も直前字母を対象にする。
+        jamoEagerText = nil  // 連打は chord refine の対象外
+    }
+
+    /// 자모 모드: 直前子音を 평→격→경 サイクル。
+    /// handleSnapshot の右スティック ↑ の分岐から呼ばれる。
+    private func handleJamoOnsetCycle() {
+        guard let lastOnset = lastJamoOnsetIndex,
+              let lastLen = lastJamoText.map({ ($0 as NSString).length }),
+              lastLen > 0,
+              let nextOnset = koreanOnsetCycle[lastOnset] else { return }
+        let newChar = koreanCompatJamoOnset(nextOnset)
+        onDirectInsert?(newChar, lastLen)
+        lastJamoText = newChar
+        lastJamoOnsetIndex = nextOnset
+        // まだ子音が押されたままなら eager も連動させる
+        if jamoEagerText != nil {
+            jamoEagerText = newChar
+            jamoEagerLen = (newChar as NSString).length
+        }
     }
 
     // MARK: - 中国語入力（簡体・繁体共通）
@@ -1152,7 +1463,10 @@ final class GamepadInputManager {
         case .toggleDakuten:
             applyToggleDakuten()
         case .deleteBack:
-            if currentMode == .korean { koreanComposer.commit() }
+            if currentMode == .korean {
+                commitKoreanComposer()
+                releaseKoreanSmartJamo()
+            }
             if isChinese { clearPinyinState() }
             if inputManager.isEmpty {
                 // idle 時: UITextView 側で1文字削除
@@ -1174,6 +1488,11 @@ final class GamepadInputManager {
             } else if onIdleConfirm?() == true {
                 // 横取り済み（VRChat OSC モードの chatbox 送信等）
             } else {
+                if currentMode == .korean {
+                    // 改行の前に韓国語の合成状態を確定 + Smart Jamo 解除
+                    commitKoreanComposer()
+                    releaseKoreanSmartJamo()
+                }
                 // 通常状態: 改行
                 onDirectInsert?("\n", 0)
             }
