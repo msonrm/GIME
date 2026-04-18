@@ -1,0 +1,319 @@
+package com.kazumaproject.dictionary
+
+import com.kazumaproject.bitset.rank1Common
+import com.kazumaproject.bitset.rank1CommonShort
+import com.kazumaproject.bitset.select0Common
+import com.kazumaproject.bitset.select0CommonShort
+import com.kazumaproject.dictionary.models.Dictionary
+import com.kazumaproject.dictionary.models.TokenEntry
+import com.kazumaproject.toBitSet
+import com.kazumaproject.markdownhelperkeyboard.converter.bitset.SuccinctBitVector
+import java.io.ObjectOutput
+import java.io.ObjectInput
+import java.io.ObjectInputStream
+import java.io.ObjectOutputStream
+import java.text.Normalizer
+import java.util.BitSet
+import com.kazumaproject.Louds.LOUDS
+
+class TokenArray {
+    private var posTableIndexList: ShortArray = shortArrayOf()
+    private var wordCostList: ShortArray = shortArrayOf()
+    private var nodeIdList: IntArray = intArrayOf()
+    private val posTableIndexListTemp: MutableList<Short> = arrayListOf()
+    private val wordCostListTemp: MutableList<Short> = arrayListOf()
+    private val nodeIdListTemp: MutableList<Int> = arrayListOf()
+    private var bitListTemp: MutableList<Boolean> = arrayListOf()
+    var bitvector: BitSet = BitSet()
+    var leftIds: List<Short> = listOf()
+    var rightIds: List<Short> = listOf()
+
+    fun getNodeIds(): IntArray {
+        return nodeIdList
+    }
+
+    fun getListDictionaryByYomiTermId(
+        nodeId: Int,
+        rank0ArrayTokenArrayBitvector: IntArray,
+        rank1ArrayTokenArrayBitvector: IntArray
+    ): List<TokenEntry> {
+        val startRank = bitvector.rank1Common(
+            bitvector.select0Common(nodeId, rank0ArrayTokenArrayBitvector),
+            rank1ArrayTokenArrayBitvector
+        )
+        val endRank = bitvector.rank1Common(
+            bitvector.select0Common(
+                nodeId + 1,
+                rank0ArrayTokenArrayBitvector
+            ), rank1ArrayTokenArrayBitvector
+        )
+
+        val tempList2 = mutableListOf<TokenEntry>().apply {
+            for (i in startRank until endRank) {
+                add(
+                    TokenEntry(
+                        posTableIndex = posTableIndexList[i],
+                        wordCost = wordCostList[i],
+                        nodeId = nodeIdList[i]
+                    )
+                )
+            }
+        }
+        return tempList2
+    }
+
+    fun getListDictionaryByYomiTermId(
+        nodeId: Int,
+        succinctBitVector: SuccinctBitVector
+    ): List<TokenEntry> {
+        val startSelect0 = succinctBitVector.select0(nodeId)
+        val endSelect0 = succinctBitVector.select0(nodeId + 1)
+        val startRank1 = succinctBitVector.rank1(startSelect0)
+        val endRank1 = succinctBitVector.rank1(endSelect0)
+
+        val tempList2 = mutableListOf<TokenEntry>().apply {
+            for (i in startRank1 until endRank1) {
+                add(
+                    TokenEntry(
+                        posTableIndex = posTableIndexList[i],
+                        wordCost = wordCostList[i],
+                        nodeId = nodeIdList[i]
+                    )
+                )
+            }
+        }
+        return tempList2
+    }
+
+    fun getListDictionaryByYomiTermIdShortArray(
+        nodeId: Short,
+        rank0ArrayTokenArrayBitvector: ShortArray,
+        rank1ArrayTokenArrayBitvector: ShortArray,
+    ): List<TokenEntry> {
+        val b = bitvector.rank1CommonShort(
+            bitvector.select0CommonShort(
+                nodeId,
+                rank0ArrayTokenArrayBitvector
+            ).toInt(), rank1ArrayTokenArrayBitvector
+        )
+        val c = bitvector.rank1CommonShort(
+            bitvector.select0CommonShort(
+                (nodeId + 1).toShort(),
+                rank0ArrayTokenArrayBitvector
+            ).toInt(), rank1ArrayTokenArrayBitvector
+        )
+        val tempList2 = mutableListOf<TokenEntry>()
+        for (i in b until c) {
+            tempList2.add(
+                TokenEntry(
+                    posTableIndex = posTableIndexList[i],
+                    wordCost = wordCostList[i],
+                    nodeId = nodeIdList[i],
+                )
+            )
+        }
+        return tempList2
+    }
+
+    fun getListDictionaryByYomiTermIdShortArray(
+        nodeId: Short,
+        succinctBitVector: SuccinctBitVector
+    ): List<TokenEntry> {
+        val startSelect0 = succinctBitVector.select0(nodeId.toInt())
+        val startRank1 = succinctBitVector.rank1(startSelect0)
+        val endSelect0 = succinctBitVector.select0(nodeId + 1)
+        val endRank1 = succinctBitVector.rank1(endSelect0)
+        val tempList2 = mutableListOf<TokenEntry>()
+        for (i in startRank1 until endRank1) {
+            tempList2.add(
+                TokenEntry(
+                    posTableIndex = posTableIndexList[i],
+                    wordCost = wordCostList[i],
+                    nodeId = nodeIdList[i],
+                )
+            )
+        }
+        return tempList2
+    }
+
+    fun readExternal(
+        objectInput: ObjectInput,
+    ): TokenArray {
+        objectInput.apply {
+            try {
+                posTableIndexList = readObject() as ShortArray
+                wordCostList = readObject() as ShortArray
+                nodeIdList = readObject() as IntArray
+                bitvector = readObject() as BitSet
+                close()
+            } catch (e: Exception) {
+                println(e.stackTraceToString())
+            }
+        }
+        return TokenArray()
+    }
+
+    fun buildTokenArray(
+        dictionaries: Map<String, List<Dictionary>>,
+        tangoTrie: LOUDS,
+        out: ObjectOutput,
+        posIndexMap: Map<Pair<Short, Short>, Int>,
+    ) {
+        val posTableIndices = mutableListOf<Short>()
+        val wordCosts = mutableListOf<Short>()
+        val nodeIds = mutableListOf<Int>()
+        val bits = mutableListOf<Boolean>()
+
+        dictionaries.forEach { (yomi, dictionaryList) ->
+            bits.add(false)
+            dictionaryList.forEach { dictionary ->
+                bits.add(true)
+                val posIndex = posIndexMap.getValue(dictionary.leftId to dictionary.rightId)
+                posTableIndices.add(posIndex.toShort())
+                wordCosts.add(dictionary.cost)
+                nodeIds.add(getNodeIdForDictionary(dictionary, tangoTrie, yomi))
+            }
+        }
+
+        posTableIndexList = posTableIndices.toShortArray()
+        wordCostList = wordCosts.toShortArray()
+        nodeIdList = nodeIds.toIntArray()
+        bitvector = bits.toBitSet()
+        writeExternalNotCompress(out)
+    }
+
+    private fun getNodeIdForDictionary(
+        dictionary: Dictionary,
+        tangoTrie: LOUDS,
+        yomi: String,
+    ): Int {
+        val tango = dictionary.tango
+        return when {
+            yomi == tango -> -2
+            tango.isHiraganaOnly() -> -2
+            tango.isKatakanaOnly() -> -1
+            else -> tangoTrie.getNodeIndex(Normalizer.normalize(tango, Normalizer.Form.NFC))
+        }
+    }
+
+    fun writeExternalNotCompress(out: ObjectOutput) {
+        out.apply {
+            writeObject(posTableIndexList)
+            writeObject(wordCostList)
+            writeObject(nodeIdList)
+            writeObject(bitvector)
+            flush()
+            close()
+        }
+    }
+
+    /**
+     *
+     * @param fileList dictionary00 ~ dictionary09
+     *
+     **/
+    fun buildPOSTable(
+        fileList: List<String>,
+        objectOutputStream: ObjectOutputStream
+    ) {
+        val tempMap: MutableMap<Pair<Short, Short>, Int> = mutableMapOf()
+        fileList.forEach {
+            val line = this::class.java.getResourceAsStream(it)
+                ?.bufferedReader()
+                ?.readLines()
+            line?.forEach { str ->
+                str.apply {
+                    val leftId = split("\\t".toRegex())[1]
+                    val rightId = split("\\t".toRegex())[2]
+                    if (tempMap[Pair(leftId.toShort(), rightId.toShort())] == null) {
+                        tempMap[Pair(leftId.toShort(), rightId.toShort())] = 0
+                    } else {
+                        tempMap[Pair(leftId.toShort(), rightId.toShort())] =
+                            (tempMap[Pair(leftId.toShort(), rightId.toShort())]!!) + 1
+                    }
+                }
+            }
+        }
+
+        val result = tempMap.toList().sortedByDescending { (_, value) -> value }.toMap()
+        val objectToWrite = result.keys.toList()
+        try {
+            objectOutputStream.apply {
+                writeObject(objectToWrite)
+                flush()
+                close()
+            }
+        } catch (e: Exception) {
+            println(e.stackTraceToString())
+        }
+    }
+
+    /**
+     *
+     * @param fileList dictionary00 ~ dictionary09
+     *
+     **/
+    fun buildPOSTableWithIndex(
+        fileList: List<String>,
+        objectOutputStream: ObjectOutputStream
+    ) {
+        val tempMap: MutableMap<Pair<Short, Short>, Int> = mutableMapOf()
+        fileList.forEach {
+            val line = this::class.java.getResourceAsStream(it)
+                ?.bufferedReader()
+                ?.readLines()
+            line?.forEach { str ->
+                str.apply {
+                    val leftId = split("\\t".toRegex())[1]
+                    val rightId = split("\\t".toRegex())[2]
+                    if (tempMap[Pair(leftId.toShort(), rightId.toShort())] == null) {
+                        tempMap[Pair(leftId.toShort(), rightId.toShort())] = 0
+                    } else {
+                        tempMap[Pair(leftId.toShort(), rightId.toShort())] =
+                            (tempMap[Pair(leftId.toShort(), rightId.toShort())]!!) + 1
+                    }
+                }
+            }
+        }
+
+        val result = tempMap.toList().sortedByDescending { (_, value) -> value }.toMap()
+        val mapToSave = result.keys.toList().mapIndexed { index, pair -> pair to index }.toMap()
+        try {
+            objectOutputStream.apply {
+                writeObject(mapToSave)
+                flush()
+                close()
+            }
+        } catch (e: Exception) {
+            println(e.stackTraceToString())
+        }
+    }
+
+    fun readPOSTable(
+        objectInputStream: ObjectInputStream
+    ) {
+        objectInputStream.apply {
+            leftIds = (readObject() as ShortArray).toList()
+            rightIds = (readObject() as ShortArray).toList()
+        }
+    }
+
+    fun readPOSTableWithIndex(
+        objectInputStream: ObjectInputStream
+    ): Map<Pair<Short, Short>, Int> {
+        var a: Map<Pair<Short, Short>, Int>
+        objectInputStream.apply {
+            a = (readObject() as Map<Pair<Short, Short>, Int>)
+        }
+        return a
+    }
+
+    private fun String.isHiraganaOnly(): Boolean {
+        return isNotEmpty() && all { it in 'ぁ'..'ゖ' || it == 'ー' }
+    }
+
+    private fun String.isKatakanaOnly(): Boolean {
+        return isNotEmpty() && all { it in 'ァ'..'ヶ' || it == 'ー' }
+    }
+
+}

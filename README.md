@@ -1,8 +1,14 @@
 # GiME — Gamepad IME
 
-iPad + ゲームパッドで日本語・英語・韓国語・中国語簡体字・中国語繁體字を入力できる実験的アプリ。
+iPad / Android + ゲームパッドで日本語・英語・韓国語・中国語簡体字・中国語繁體字を入力できる実験的アプリ。
 
-[KeyLogicKit](https://github.com/msonrm/KeyLogicKit) の IME エンジンを利用し、GCController でゲームパッド入力を受け取り、かな漢字変換を実現する。
+iPad 版は [KeyLogicKit](https://github.com/msonrm/KeyLogicKit) の IME エンジン、Android 版は [KazumaProject/JapaneseKeyboard](https://github.com/KazumaProject/markdownKeyboard) の変換エンジン（vendored）を利用。どちらもゲームパッド入力を直接受け取り、自前のパイプラインで日本語入力を実現する。
+
+- **iPad 版**: `Sources/GIME/` / Swift Playgrounds or Xcode でビルド
+- **Android 版**: `android/` / Android Studio でビルド、または [Releases](https://github.com/msonrm/GIME/releases) から署名済み APK をダウンロード
+  - Android アプリ名: **GIME**（applicationId: `com.msonrm.gime`）
+  - Android 10 以上
+  - システム IME として任意アプリに入力、または VRChat OSC で chatbox に直接送信可能
 
 ## 特徴
 

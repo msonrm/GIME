@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  GIME Input Method 定義
+  サブタイプは言語ごとに分けるが、実際のモード切替は Start ボタンで行うため
+  ここでは「既定」としての日本語を 1 つだけ登録する。
+-->
+<input-method xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="com.gime.android.MainActivity"
+    android:supportsSwitchingToNextInputMethod="true">
+    <subtype
+        android:label="@string/ime_subtype_japanese"
+        android:imeSubtypeLocale="ja_JP"
+        android:imeSubtypeMode="keyboard"
+        android:isAsciiCapable="true" />
+</input-method>

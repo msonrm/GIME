@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GIME</string>
+    <string name="ime_label">GIME（ゲームパッド入力）</string>
+    <string name="ime_subtype_japanese">日本語</string>
+    <string name="bubble_notification_channel">GIME バブル</string>
+    <string name="bubble_notification_title">GIME バブル表示中</string>
+    <string name="bubble_notification_text">タップで GIME を開く</string>
+</resources>
