@@ -67,13 +67,6 @@ final class GamepadInputManager {
     private(set) var pressedButtons: Set<String> = []
     private(set) var leftStickDirection: StickDirection = .neutral
     private(set) var currentMode: GamepadInputMode = .japanese
-    private(set) var operationMode: GamepadOperationMode = .normal
-
-    /// 後方互換: テキスト操作モード判定
-    var isTextOperationMode: Bool { operationMode == .textOperation }
-
-    /// カメラモード判定
-    var isCameraMode: Bool { operationMode == .camera }
 
     /// 中国語モード判定（簡体/繁体共通のロジック用）
     var isChinese: Bool {
@@ -116,29 +109,6 @@ final class GamepadInputManager {
     /// `true` を返すと標準の改行挿入をスキップする。
     /// VRChat OSC モードで「LS=chatbox 確定送信」を実現するために使用する。
     var onIdleConfirm: (() -> Bool)?
-
-    // MARK: - テキスト操作モード コールバック
-
-    /// 文フォーカス移動（←↑=前文頭、→↓=次文頭）
-    /// - Parameter direction: 負=前、正=次
-    var onSentenceFocusMove: ((_ direction: Int) -> Void)?
-
-    /// 文の前後移動（RT+左スティック: カーソル位置の文を隣接文と入れ替え）
-    /// - Parameter direction: 負=前へ、正=後ろへ
-    var onSwapSentence: ((_ direction: Int) -> Void)?
-
-    /// スマート選択 拡大（D-pad →。文レベルまで）
-    var onSmartSelectExpand: (() -> Void)?
-
-    /// スマート選択 縮小（D-pad ←）
-    var onSmartSelectShrink: (() -> Void)?
-
-    /// 選択範囲を文単位で拡張（D-pad ↑=前方向、↓=後方向）
-    /// - Parameter direction: 負=前、正=後
-    var onExtendSelectionBySentence: ((_ direction: Int) -> Void)?
-
-    /// テキスト操作モード中に毎フレーム呼ばれるコールバック（フォーカス rect 更新用）
-    var onTextOperationFrame: (() -> Void)?
 
     // MARK: - Dependencies
 
@@ -411,18 +381,6 @@ final class GamepadInputManager {
         }()
         if leftStickDirection != lDir { leftStickDirection = lDir }
 
-        // === テキスト操作モード / カメラモード ===
-        if operationMode == .textOperation {
-            onTextOperationFrame?()
-            handleTextOperationMode(gp, rtNow: rtNow,
-                                    lStickUp: lStickUp, lStickDown: lStickDown,
-                                    lStickLeft: lStickLeft, lStickRight: lStickRight)
-            // D-pad / 左スティック / 右スティックの入力処理をスキップし、
-            // Back / LS / RS / Start ボタンの処理へ進む
-        } else if operationMode == .camera {
-            // カメラモード: 文字入力をスキップ（Hand Pose で入力）
-        } else {
-
         // === モード別の文字入力・トリガー処理 ===
         switch currentMode {
         case .japanese:
@@ -593,8 +551,6 @@ final class GamepadInputManager {
             if lStickLeft && !prevLStickLeft { executeAction(.shrinkSegment) }
         }
 
-        } // end of operationMode == .normal
-
         // --- 前フレーム状態更新（共通: スティック・D-pad） ---
         prevRStickUp = rStickUp
         prevRStickDown = rStickDown
@@ -605,35 +561,18 @@ final class GamepadInputManager {
         prevLStickLeft = lStickLeft
         prevLStickRight = lStickRight
 
-        // === Back=スペース/操作モードサイクル, LS=確定/改行, RS=キャンセル ===
+        // === Back=スペース, LS=確定/改行, RS=キャンセル ===
         if prevBack && !gp.back && !startBackComboFired {
-            let isIdle = inputManager.isEmpty && (!isChinese || pinyinBuffer.isEmpty)
-            switch operationMode {
-            case .normal where isIdle:
-                // idle 時: テキスト操作モードに遷移
-                operationMode = .textOperation
-            case .textOperation:
-                // テキスト操作モード → カメラモード（日本語のみ）
-                if currentMode == .japanese {
-                    operationMode = .camera
-                } else {
-                    operationMode = .normal
+            // 全モード共通: スペース挿入（日本語は IME 経由、それ以外は onDirectInsert）
+            if currentMode == .japanese {
+                executeAction(.space)
+            } else {
+                if currentMode == .korean {
+                    commitKoreanComposer()
+                    releaseKoreanSmartJamo()
                 }
-            case .camera:
-                // カメラモード → 通常に戻る
-                operationMode = .normal
-            case .normal:
-                // composing 中: スペース挿入
-                if currentMode == .japanese {
-                    executeAction(.space)
-                } else {
-                    if currentMode == .korean {
-                        commitKoreanComposer()
-                        releaseKoreanSmartJamo()
-                    }
-                    if isChinese { confirmPinyinTopCandidate() }
-                    onDirectInsert?(" ", 0)
-                }
+                if isChinese { confirmPinyinTopCandidate() }
+                onDirectInsert?(" ", 0)
             }
         }
         if prevLS && !gp.lsClick {
@@ -703,58 +642,6 @@ final class GamepadInputManager {
         prevLS = gp.lsClick
         prevRS = gp.rsClick
         prevStart = gp.start
-    }
-
-    // MARK: - テキスト操作モード
-
-    /// テキスト操作モードの入力処理
-    ///
-    /// - 左スティック: 文フォーカス移動（←↑=前文頭、→↓=次文頭）
-    /// - RT + 左スティック: カーソル位置の文（または選択範囲）を前後に移動
-    /// - RB + 左スティック: 1文字/1行ずつカーソル移動（キーリピートあり）
-    /// - D-pad ←→: スマート選択 縮小/拡大（文レベルまで）
-    /// - D-pad ↑↓: 選択範囲を文単位で前/後に拡張
-    private func handleTextOperationMode(_ gp: GamepadSnapshot, rtNow: Bool,
-                                         lStickUp: Bool, lStickDown: Bool,
-                                         lStickLeft: Bool, lStickRight: Bool) {
-        let rbNow = gp.rb
-
-        // 全操作エッジ検出のみ（キーリピートなし）
-        let edgeLeft = lStickLeft && !prevLStickLeft
-        let edgeRight = lStickRight && !prevLStickRight
-        let edgeUp = lStickUp && !prevLStickUp
-        let edgeDown = lStickDown && !prevLStickDown
-
-        if rbNow {
-            // RB + 左スティック: 1文字/1行カーソル移動
-            if edgeLeft { onCursorMove?(-1) }
-            if edgeRight { onCursorMove?(1) }
-            if edgeUp { onCursorMoveVertical?(-1) }
-            if edgeDown { onCursorMoveVertical?(1) }
-        } else if rtNow {
-            // RT + 左スティック: 文の前後移動
-            if edgeLeft || edgeUp { onSwapSentence?(-1) }
-            if edgeRight || edgeDown { onSwapSentence?(1) }
-        } else if !prevRB && !prevRT {
-            // 左スティック単体: 文フォーカス移動
-            // ※ 前フレームで RB/RT が押されていた場合はスキップ（認識ずれで誤発火を防ぐ）
-            if edgeLeft || edgeUp { onSentenceFocusMove?(-1) }
-            if edgeRight || edgeDown { onSentenceFocusMove?(1) }
-        }
-
-        // D-pad: スマート選択・文単位拡張
-        if gp.dpadRight && !prevDpadRight {
-            onSmartSelectExpand?()
-        }
-        if gp.dpadLeft && !prevDpadLeft {
-            onSmartSelectShrink?()
-        }
-        if gp.dpadUp && !prevDpadUp {
-            onExtendSelectionBySentence?(-1)
-        }
-        if gp.dpadDown && !prevDpadDown {
-            onExtendSelectionBySentence?(1)
-        }
     }
 
     // MARK: - 日本語入力

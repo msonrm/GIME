@@ -150,18 +150,6 @@ struct GamepadVisualizerView: View {
                     .clipShape(Capsule())
                     .accessibilityLabel("入力モード: \(mode.label)")
 
-                // 操作モードバッジ
-                if gamepadInput.isTextOperationMode {
-                    Text("テキスト操作")
-                        .font(.system(size: 12, weight: .semibold))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(.orange)
-                        .foregroundStyle(.white)
-                        .clipShape(Capsule())
-                        .accessibilityLabel("テキスト操作モード")
-                }
-
                 // VRChat OSC モードバッジ
                 if vrChatSettings.enabled {
                     Button {
@@ -217,9 +205,6 @@ struct GamepadVisualizerView: View {
             .padding(.horizontal, 4)
 
             if !isCollapsed {
-                if gamepadInput.isTextOperationMode {
-                    textOperationGuide
-                } else {
                 HStack(spacing: 24) {
                     VStack(spacing: 8) {
                         HStack(spacing: 6) {
@@ -273,7 +258,6 @@ struct GamepadVisualizerView: View {
                 }
                 .padding()
                 .background(.background, in: RoundedRectangle(cornerRadius: 16))
-                } // end of normal mode
             }
         }
         .sheet(isPresented: $showSettings) {
@@ -292,46 +276,6 @@ struct GamepadVisualizerView: View {
         }
         .sheet(isPresented: $showVrChatSettings) {
             VrChatSettingsView(settings: vrChatSettings)
-        }
-    }
-
-    // MARK: - テキスト操作モード ガイド
-
-    private var textOperationGuide: some View {
-        HStack(alignment: .top, spacing: 20) {
-            guideColumn(title: "D-pad 選択", items: [
-                "→ 拡大（括弧→文）",
-                "← 縮小",
-                "↑ 文選択（後方）",
-                "↓ 文選択（前方）",
-            ])
-            guideColumn(title: "L🕹 フォーカス", items: [
-                "←↑ 前の文頭",
-                "→↓ 次の文末",
-            ])
-            guideColumn(title: "RB+L🕹 カーソル", items: [
-                "←→ 1文字移動",
-                "↑↓ 1行移動",
-            ])
-            guideColumn(title: "RT+L🕹 並替", items: [
-                "←↑ 前へ移動",
-                "→↓ 後ろへ移動",
-            ])
-        }
-        .padding()
-        .background(.background, in: RoundedRectangle(cornerRadius: 16))
-    }
-
-    private func guideColumn(title: String, items: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-            ForEach(items, id: \.self) { item in
-                Text(item)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.primary)
-            }
         }
     }
 

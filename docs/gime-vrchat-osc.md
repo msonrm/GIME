@@ -24,6 +24,62 @@
 | **VRChat 端末** | Quest 単独 / PC VRChat / VRChat Mobile (4GB+ RAM 推奨) |
 | **ネットワーク** | 同一 Wi-Fi (ゲスト Wi-Fi の Client Isolation は不可) |
 
+## 使い分けシナリオ
+
+VRChat のプラットフォームと手元の端末によって、最適な運用形態と設定が
+変わります。セットアップを始める前に、自分の環境を下表で確認してください。
+
+| VRChat が動く端末 | GIME 側端末 | 推奨モード | `commitOnlyMode` | composing 可視化 |
+|---|---|---|---|---|
+| Quest 単独 / PC VRChat (Desktop) | Android スマホ | IME or バブル | **OFF** | VRChat アバターの吹き出し preview（候補 cycle も反映）|
+| Quest 単独 / PC VRChat (Desktop) | iPad (GiME iOS) | GiME iOS アプリ | OFF | GiME iOS のアプリ画面内 |
+| VRChat Mobile (Android) | 同じ Android | **バブルモード** | **ON** | バブルの ✈ プレビュー行 |
+| VRChat Mobile (iPad) | **別の Android スマホ**（推奨）| バブルモード | ON | バブル |
+| VRChat Mobile (iPad) | 同じ iPad (Stage Manager) | GiME iOS | ON | アプリ画面、フォーカス切替が必要 |
+| Quest に GIME を sideload | 同じ Quest | 非推奨 | — | VR セッション中は Android オーバーレイが描画されない |
+
+※ **GiME iOS は現在 iPad 専用**（`TARGETED_DEVICE_FAMILY: "2"`、iPadOS 18.0+）。
+iPhone は未対応。iPhone で OSC 送信したい場合は Android 端末で GIME を使う
+か、iPhone 対応リクエストを Issue で送ってください。
+
+### なぜ `commitOnlyMode` を切り替えるのか
+
+`/chatbox/input <text> <sendImmediately> <playSound>` の 2 番目 `sendImmediately`
+の挙動がプラットフォームで食い違うためです:
+
+| 値 | Quest / PC (Desktop) | VRChat Mobile |
+|---|---|---|
+| `false` (下書き) | アバター頭上の吹き出しに preview 表示（ログに残らない）| **chat 入力 UI が自動展開**され IME フォーカスが奪われる |
+| `true` (確定) | チャットログに送信 + 吹き出しに表示 | UI を開かずに送信（"bypass the keyboard"）|
+
+- **Desktop/Quest 相手なら** `commitOnlyMode = OFF` で下書き送信が有効になり、
+  打鍵・変換・候補 cycle がすべて相手の吹き出しにリアルタイムに反映される。
+  これが「バブルが無くても候補を選べる」理由。
+- **VRChat Mobile 相手なら** 下書きが UI を開いてしまうので `commitOnlyMode = ON`
+  にして LS 確定時のみ `true` で送る。composing は OSC 経由では見せられないので、
+  Android バブル（自分の画面内）で確認する。
+
+### iPad VRChat が構造的にツラい理由
+
+- iPadOS には Android の `SYSTEM_ALERT_WINDOW` 相当のオーバーレイ API が存在せず、
+  GIME バブルに該当する機能を iOS に実装できない
+- VRChat Mobile 側の挙動で OSC 下書き preview も塞がれている
+- 結果、iPad 単体で VRChat をやりながら快適に日本語を打つ手段が無い
+
+現実的な緩和策:
+
+1. **別の Android スマホを併用**（最も快適）: iPad はフルスクリーン維持、
+   Android バブル側で composing を見ながら LS で送信
+2. **Stage Manager で iPad 分割**: iPad VRChat をウィンドウ化、GiME iOS を横並び。
+   ゲームパッド入力は都度フォーカスされた側にしか届かないのでピンポンが発生
+3. **物理的にスマホを覗き込む**: スマホ版 GIME で入力、画面を横目で確認
+
+### Quest に GIME を sideload する案
+
+APK 自体はサイドロード可能だが、Quest OS は VR アプリ実行中に他 Android アプリを
+オーバーレイ表示する API を開放していない。かつ同じゲームパッドをアバター操作と
+文字入力で取り合うため実用的でない。**入力端末は物理的に分けるのが鉄則**。
+
 ## セットアップ手順
 
 ### 1. VRChat 側の OSC 有効化

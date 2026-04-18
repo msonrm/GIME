@@ -27,8 +27,6 @@ struct ContentView: View {
     @State private var cursorLocation: Int = 0
     @State private var selectionLength: Int = 0
     @State private var caretRect: CGRect = .zero
-    private let textRangeRectsProvider = TextRangeRectsProvider()
-    @State private var textOpController: TextOperationController?
 
     /// エディタ表示スタイル（動画撮影用に大きめフォント）
     private let editorStyle = EditorStyle(
@@ -50,7 +48,6 @@ struct ContentView: View {
                     onCaretRectChange: { rect in
                         caretRect = rect
                     },
-                    textRangeRectsProvider: textRangeRectsProvider,
                     hidesSoftwareKeyboard: true
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -87,14 +84,6 @@ struct ContentView: View {
                             anchor: caretRect,
                             bounds: geo.size
                         )
-                    }
-                }
-                .overlay {
-                    // フォーカスオーバーレイ（テキスト操作モード中、フォーカス文以外を暗く）
-                    if let ctrl = textOpController, ctrl.isFocusOverlayActive {
-                        SentenceFocusOverlay(cutoutRects: ctrl.focusedSentenceRects)
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
                     }
                 }
 
@@ -199,44 +188,6 @@ struct ContentView: View {
                 }
                 selectionLength = 0
             }
-            // MARK: テキスト操作モード コールバック
-            let ctrl = TextOperationController(rectsProvider: textRangeRectsProvider)
-            textOpController = ctrl
-
-            gp.onSentenceFocusMove = { direction in
-                let r = ctrl.sentenceFocusMove(direction: direction, text: text, cursor: cursorLocation)
-                cursorLocation = r.cursor
-                selectionLength = r.selection
-            }
-            gp.onSwapSentence = { direction in
-                guard let r = ctrl.swapSentence(
-                    direction: direction, text: text,
-                    cursor: cursorLocation, selection: selectionLength
-                ) else { return }
-                text = r.text
-                cursorLocation = r.cursor
-                selectionLength = 0
-            }
-            gp.onSmartSelectExpand = {
-                guard let r = ctrl.smartSelectExpand(text: text, cursor: cursorLocation) else { return }
-                cursorLocation = r.cursor
-                selectionLength = r.selection
-            }
-            gp.onSmartSelectShrink = {
-                let r = ctrl.smartSelectShrink(text: text, cursor: cursorLocation)
-                cursorLocation = r.cursor
-                selectionLength = r.selection
-            }
-            gp.onExtendSelectionBySentence = { direction in
-                let r = ctrl.extendSelectionBySentence(
-                    direction: direction, text: text,
-                    cursor: cursorLocation, selection: selectionLength)
-                cursorLocation = r.cursor
-                selectionLength = r.selection
-            }
-            gp.onTextOperationFrame = {
-                ctrl.refreshFocusRectsIfNeeded(text: text, cursor: cursorLocation)
-            }
             pinyinEngine.load()
             gp.pinyinEngine = pinyinEngine
 
@@ -271,13 +222,6 @@ struct ContentView: View {
         }
         .onChange(of: vrChatSettings.port) { _, _ in
             refreshVrChatOutput()
-        }
-        .onChange(of: gamepadInput?.operationMode) { _, newMode in
-            if newMode == .textOperation {
-                textOpController?.onModeEnter(text: text, cursor: cursorLocation)
-            } else {
-                textOpController?.onModeExit()
-            }
         }
     }
 
@@ -349,25 +293,3 @@ struct ContentView: View {
     }
 }
 
-// MARK: - フォーカスオーバーレイ
-
-/// テキスト操作モードのフォーカス効果
-///
-/// 指定された rect 以外を半透明の背景色で覆い、
-/// フォーカス中の文を「くり抜き」で際立たせる。
-private struct SentenceFocusOverlay: View {
-    let cutoutRects: [CGRect]
-
-    var body: some View {
-        Canvas { context, size in
-            // 全体を覆うパスから、フォーカス文の rect をくり抜く
-            var path = Path(CGRect(origin: .zero, size: size))
-            for rect in cutoutRects {
-                // くり抜き部分を角丸にして自然に見せる
-                path.addRoundedRect(in: rect, cornerSize: CGSize(width: 4, height: 4))
-            }
-            context.fill(path, with: .color(Color(.systemBackground).opacity(0.7)), style: FillStyle(eoFill: true))
-        }
-        .animation(.easeInOut(duration: 0.15), value: cutoutRects.map { [$0.origin.x, $0.origin.y, $0.width, $0.height] })
-    }
-}
