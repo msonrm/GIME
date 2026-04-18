@@ -65,7 +65,7 @@ GiME（Gamepad IME）は、iPad でゲームコントローラーを使って多
 ## 動作要件
 
 - iPadOS 18.0 以降
-- ゲームコントローラー（MFi、Xbox、PlayStation、Switch Pro Controller 等）
+- ゲームコントローラー（MFi / Xbox / PlayStation（DualSense）/ Switch（Proコントローラー）等）
 
 ## よくある質問
 
