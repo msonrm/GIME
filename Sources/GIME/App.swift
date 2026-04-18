@@ -18,6 +18,14 @@ struct ContentView: View {
     @State private var vrChatSettings = VrChatOscSettings()
     @State private var vrChatOutput: VrChatOscOutput?
 
+    /// iPhone（compact 幅）では全体を縮小、iPad（regular 幅）では従来の大きめスタイル。
+    /// Stage Manager で iPad を縦長に細くした場合も compact 扱いになる。
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    private var isCompactWidth: Bool {
+        horizontalSizeClass == .compact
+    }
+
     // ゲームパッド専用アプリだが、キーボード入力も受け付ける（フォールバック）
     private var keyRouter: KeyRouter {
         KeyRouter(definition: DefaultKeymaps.romajiUS)
@@ -28,11 +36,30 @@ struct ContentView: View {
     @State private var selectionLength: Int = 0
     @State private var caretRect: CGRect = .zero
 
-    /// エディタ表示スタイル（動画撮影用に大きめフォント）
-    private let editorStyle = EditorStyle(
-        font: .monospacedSystemFont(ofSize: 28, weight: .regular),
-        lineSpacing: 4
-    )
+    /// エディタ表示スタイル。compact 幅では小さめのフォント、regular では動画撮影向けの大きめフォント。
+    private var editorStyle: EditorStyle {
+        if isCompactWidth {
+            return EditorStyle(
+                font: .monospacedSystemFont(ofSize: 16, weight: .regular),
+                lineSpacing: 2
+            )
+        } else {
+            return EditorStyle(
+                font: .monospacedSystemFont(ofSize: 28, weight: .regular),
+                lineSpacing: 4
+            )
+        }
+    }
+
+    /// 変換候補ポップアップのフォントサイズ
+    private var candidateFontSize: CGFloat {
+        isCompactWidth ? 18 : 28
+    }
+
+    /// ゲームパッド未接続プレースホルダの高さ
+    private var placeholderHeight: CGFloat {
+        isCompactWidth ? 100 : 180
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -61,8 +88,8 @@ struct ContentView: View {
                             selectedAdditionalCandidateIndex: inputManager.selectedAdditionalCandidateIndex,
                             candidates: inputManager.visibleCandidateTexts,
                             selectedIndex: inputManager.selectedIndexInWindow,
-                            font: .system(size: 28),
-                            fontSize: 28,
+                            font: .system(size: candidateFontSize),
+                            fontSize: candidateFontSize,
                             anchor: caretRect,
                             bounds: geo.size
                         )
@@ -79,8 +106,8 @@ struct ContentView: View {
                                 "\($0.word)  \($0.reading)"
                             },
                             selectedIndex: gp.pinyinSelectedIndexInWindow,
-                            font: .system(size: 28),
-                            fontSize: 28,
+                            font: .system(size: candidateFontSize),
+                            fontSize: candidateFontSize,
                             anchor: caretRect,
                             bounds: geo.size
                         )
@@ -107,7 +134,7 @@ struct ContentView: View {
 
                         RoundedRectangle(cornerRadius: 16)
                             .fill(Color(.systemGray6))
-                            .frame(height: 180)
+                            .frame(height: placeholderHeight)
                             .accessibilityHidden(true)
                     }
                     .padding([.horizontal, .top])

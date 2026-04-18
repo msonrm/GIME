@@ -2,7 +2,7 @@
 
 ## 概要
 
-GiME (Gamepad IME) は、iPad + ゲームパッドで日本語・英語・韓国語・中国語簡体字を入力できる実験的アプリである。
+GiME (Gamepad IME) は、iPhone / iPad + ゲームパッドで日本語・英語・韓国語・中国語簡体字を入力できる実験的アプリである（Universal build、iPad はエディタ・ビジュアライザとも大きめフォント、iPhone は compact 幅で縮小レイアウト）。
 
 - KeyLogicKit の IME エンジン（InputManager, IMETextView）を利用し、かな漢字変換を実現
 - GCController でゲームパッド入力を受け取り、KeyRouter をバイパスして InputManager に直接かなを注入する

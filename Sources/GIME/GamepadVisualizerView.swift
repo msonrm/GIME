@@ -10,6 +10,33 @@ struct GamepadVisualizerView: View {
     @State private var showVrChatSettings = false
     @State private var isCollapsed = false
 
+    /// iPhone など狭幅では spacing / padding を詰めてはみ出しを防ぐ
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    private var isCompactWidth: Bool {
+        horizontalSizeClass == .compact
+    }
+
+    /// 3 カラム HStack の spacing
+    private var columnSpacing: CGFloat {
+        isCompactWidth ? 8 : 24
+    }
+
+    /// 外枠 padding
+    private var outerPadding: CGFloat {
+        isCompactWidth ? 8 : 16
+    }
+
+    /// 中央プレビュー文字サイズ
+    private var previewFontSize: CGFloat {
+        isCompactWidth ? 40 : 56
+    }
+
+    /// 中央プレビューの最小幅
+    private var previewMinWidth: CGFloat {
+        isCompactWidth ? 50 : 70
+    }
+
     private var mode: GamepadInputMode { gamepadInput.currentMode }
 
     private var dpad: DpadLabels {
@@ -205,7 +232,7 @@ struct GamepadVisualizerView: View {
             .padding(.horizontal, 4)
 
             if !isCollapsed {
-                HStack(spacing: 24) {
+                HStack(spacing: columnSpacing) {
                     VStack(spacing: 8) {
                         HStack(spacing: 6) {
                             shoulderButton(
@@ -228,9 +255,9 @@ struct GamepadVisualizerView: View {
                             .font(.system(size: 14))
                             .foregroundStyle(.secondary)
                         Text(gamepadInput.previewChar ?? "　")
-                            .font(.system(size: 56, weight: .bold))
+                            .font(.system(size: previewFontSize, weight: .bold))
                             .foregroundStyle(gamepadInput.previewChar != nil ? Color.accentColor : Color(.systemGray4))
-                            .frame(minWidth: 70)
+                            .frame(minWidth: previewMinWidth)
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel("プレビュー: \(gamepadInput.previewChar ?? "なし")、行: \(currentRowNames[gamepadInput.activeRow])")
@@ -256,7 +283,7 @@ struct GamepadVisualizerView: View {
                         .accessibilityElement(children: .contain)
                         .accessibilityLabel("右スティック")
                 }
-                .padding()
+                .padding(outerPadding)
                 .background(.background, in: RoundedRectangle(cornerRadius: 16))
             }
         }
