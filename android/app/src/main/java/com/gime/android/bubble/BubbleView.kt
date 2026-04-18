@@ -89,6 +89,14 @@ class BubbleView(
         try {
             windowManager.updateViewLayout(this, layoutParams)
         } catch (_: Throwable) {}
+        if (!active) {
+            // フォーカスを失う側に倒すなら、押下中のキーが ACTION_UP を
+            // 取り逃した状態のまま固着しないように snapshot を空に揃える。
+            // 通常はこのあと onWindowFocusChanged(false) が同じ処理を再度
+            // 呼ぶが、updateViewLayout 経由のフォーカス変化はタイミングが
+            // 環境依存なので明示的にも呼んでおく。
+            service.resetGamepadState()
+        }
         animate()
             .alpha(if (active) ALPHA_FOCUSED else ALPHA_UNFOCUSED)
             .setDuration(120L)
@@ -179,6 +187,18 @@ class BubbleView(
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
         if (service.handleMotionEvent(event)) return true
         return super.dispatchGenericMotionEvent(event)
+    }
+
+    /// フォーカスを失った瞬間に「押下中」だったボタンの ACTION_UP は別ウィンドウへ
+    /// 流れてしまい、こちらの snapshot に押下フラグが残る。次に復帰した後で
+    /// 同じボタンを押しても "前回と同じ bit パターン" と判定されて何も起きない
+    /// （"バブルをタップしてもボタンが通らない" 症状）。フォーカス喪失時に
+    /// snapshot を全リリースに揃えてエッジを正常終了させる。
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        if (!hasWindowFocus) {
+            service.resetGamepadState()
+        }
     }
 
     /// タッチイベントで active/inactive を切り替える。

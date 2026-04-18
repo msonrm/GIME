@@ -359,6 +359,21 @@ class BubbleService :
         return true
     }
 
+    /// ウィンドウのフォーカスを失ったときに呼ぶ。
+    ///
+    /// バブルがフォーカスを失っている間に届いた ACTION_UP は別ウィンドウに
+    /// 流れてしまうため、現在のスナップショットには「押されたまま」のキーが
+    /// 残り得る。その状態だと次にフォーカス復帰した後で同じキーを押しても
+    /// `GamepadInputManager.updateSnapshot` が「前回と同じ bit パターン」と
+    /// 判定して早期 return し、何も入力されない（"急に通らない" バグ）。
+    ///
+    /// ここで全キー released の空 snapshot を流すことで、保留中の release edge
+    /// を正常に発火させ、`prev*` フラグや `lastRelevantBits` を整合させる。
+    fun resetGamepadState() {
+        currentSnapshot = GamepadSnapshot()
+        inputManager.updateSnapshot(currentSnapshot)
+    }
+
     // MARK: - VRChat OSC 配線
 
     private fun refreshVrChatOutput() {
