@@ -5,6 +5,10 @@ import SwiftUI
 struct GamepadVisualizerView: View {
     let gamepadInput: GamepadInputManager
     @Bindable var vrChatSettings: VrChatOscSettings
+    /// chatbox に送る下書きの文字数。VRChat OSC 有効時にバッジ横に
+    /// `N/144` として表示し、`maxChatboxLen` 到達で赤反転。
+    /// 0 のときは非表示（OSC 無効時 or 空）。
+    var chatboxLength: Int = 0
 
     @State private var showSettings = false
     @State private var showVrChatSettings = false
@@ -129,6 +133,22 @@ struct GamepadVisualizerView: View {
         }
     }
 
+    /// chatbox 文字数カウンターバッジ。144 到達で赤反転。
+    /// `VrChatOscOutput` が超過分を黙ってトリムするため、ユーザーに可視化する。
+    @ViewBuilder
+    private var chatboxLengthBadge: some View {
+        let max = VrChatOscOutput.maxChatboxLen
+        let over = chatboxLength >= max
+        Text("\(chatboxLength)/\(max)")
+            .font(.system(size: 11, weight: over ? .semibold : .regular, design: .monospaced))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(over ? Color.red : Color(.systemGray5))
+            .foregroundStyle(over ? Color.white : Color.secondary)
+            .clipShape(Capsule())
+            .accessibilityLabel("chatbox 文字数 \(chatboxLength) / \(max)\(over ? "、上限に到達しました" : "")")
+    }
+
     // MARK: - 右スティックラベル
 
     private var rStickUpLabel: String {
@@ -193,6 +213,11 @@ struct GamepadVisualizerView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("VRChat OSC モード 有効。タップして設定を開く")
+
+                    // chatbox 文字数カウンター（0 のときは隠す）
+                    if chatboxLength > 0 {
+                        chatboxLengthBadge
+                    }
                 }
 
                 // 中国語モード: バッファ表示（繁体字は注音、簡体字はピンイン）

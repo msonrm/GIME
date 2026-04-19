@@ -118,7 +118,8 @@ struct ContentView: View {
                 if let gp = gamepadInput, gp.isConnected {
                     GamepadVisualizerView(
                         gamepadInput: gp,
-                        vrChatSettings: vrChatSettings
+                        vrChatSettings: vrChatSettings,
+                        chatboxLength: vrChatSettings.enabled ? chatboxDraft.count : 0
                     )
                     .padding([.horizontal, .top])
                     .background(.ultraThinMaterial)
