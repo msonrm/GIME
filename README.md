@@ -2,7 +2,7 @@
 
 iPad / Android + ゲームパッドで日本語・英語・韓国語・中国語簡体字・中国語繁體字を入力できる実験的アプリ。
 
-iPad 版は [KeyLogicKit](https://github.com/msonrm/KeyLogicKit) の IME エンジン、Android 版は [KazumaProject/JapaneseKeyboard](https://github.com/KazumaProject/markdownKeyboard) の変換エンジン（vendored）を利用。どちらもゲームパッド入力を直接受け取り、自前のパイプラインで日本語入力を実現する。
+iPad 版は [KeyLogicKit](https://github.com/msonrm/KeyLogicKit) の IME エンジン、Android 版は [KazumaProject/JapaneseKeyboard](https://github.com/KazumaProject/JapaneseKeyboard) の変換エンジン（vendored）を利用。どちらもゲームパッド入力を直接受け取り、自前のパイプラインで日本語入力を実現する。
 
 - **iPad 版**: `Sources/GIME/` / Swift Playgrounds or Xcode でビルド
 - **Android 版**: `android/` / Android Studio でビルド、または [Releases](https://github.com/msonrm/GIME/releases) から署名済み APK をダウンロード
