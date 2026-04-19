@@ -6,6 +6,29 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+/// versionCode を git のコミット総数から計算する。
+///
+/// Play Console は同じ versionCode の AAB を再アップロードできないので、
+/// 手で bump し忘れて何度もエラーになるのを避けるための自動採番。
+/// - 各コミットで +1（HEAD のコミット数）
+/// - shallow clone（depth=1）など履歴が無い環境では fallback (2) に落ちる
+/// - GIME_VERSION_CODE 環境変数で明示的に上書き可能
+private fun computeVersionCode(): Int {
+    System.getenv("GIME_VERSION_CODE")?.toIntOrNull()?.let { return it }
+    return try {
+        val proc = ProcessBuilder("git", "rev-list", "--count", "HEAD")
+            .directory(rootDir.parentFile)  // android/ → repo root
+            .redirectErrorStream(true)
+            .start()
+        val out = proc.inputStream.bufferedReader().readText().trim()
+        proc.waitFor()
+        val n = out.toIntOrNull()
+        if (n != null && n > 0) n else 2
+    } catch (_: Exception) {
+        2
+    }
+}
+
 android {
     namespace = "com.gime.android"
     compileSdk = 35
@@ -14,7 +37,7 @@ android {
         applicationId = "com.msonrm.gime"
         minSdk = 28
         targetSdk = 35
-        versionCode = 2
+        versionCode = computeVersionCode()
         versionName = "0.1.0"
     }
 
