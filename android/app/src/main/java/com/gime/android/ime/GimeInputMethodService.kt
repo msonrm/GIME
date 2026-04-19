@@ -7,6 +7,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -86,8 +87,17 @@ class GimeInputMethodService :
     /// chatbox 下書きとしてユーザーに見せているのは `vrChatAccumulated + imeComposingText`。
     private var vrChatAccumulated: String = ""
 
+    /// ビジュアライザのカウンター表示用。Compose 観測可能な状態として保持。
+    /// `vrChatAccumulated + imeComposingText` の文字数を手で同期する。
+    val draftLengthState = mutableIntStateOf(0)
+
+    private fun updateDraftLength() {
+        draftLengthState.intValue = vrChatAccumulated.length + imeComposingText.length
+    }
+
     /// chatbox の下書きを今の状態から再送する。VRChat モード ON 時のみ呼ぶ。
     private fun sendVrChatDraft() {
+        updateDraftLength()
         val out = vrChatOutput ?: return
         val draft = vrChatAccumulated + imeComposingText
         out.sendComposingText(draft)
@@ -178,6 +188,7 @@ class GimeInputMethodService :
                         currentInputConnection?.finishComposingText()
                         imeComposing = false
                         imeComposingText = ""
+                        updateDraftLength()
                     }
                 }
         }
@@ -211,6 +222,7 @@ class GimeInputMethodService :
         Log.d(TAG, "onFinishInput")
         imeComposing = false
         imeComposingText = ""
+        updateDraftLength()
         super.onFinishInput()
     }
 
@@ -422,6 +434,7 @@ class GimeInputMethodService :
                 // （Enter 入力の代わりに「メッセージ送信」セマンティクス）
                 out.commit(vrChatAccumulated)
                 vrChatAccumulated = ""
+                updateDraftLength()
             } else {
                 val ic = currentInputConnection
                 val info = currentInputEditorInfo

@@ -85,6 +85,7 @@ class GimeInputView(
                         GamepadVisualizer(
                             inputManager = service.inputManager,
                             vrChatEnabled = oscEnabled,
+                            chatboxLength = service.draftLengthState.intValue,
                         )
                     }
                 }

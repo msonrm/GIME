@@ -36,6 +36,7 @@ import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gime.android.input.GamepadInputManager
+import com.gime.android.osc.VrChatOscOutput
 import com.gime.android.osc.VrChatOscSettings
 import com.gime.android.ui.GamepadVisualizer
 import com.gime.android.ui.GimeTheme
@@ -135,9 +136,14 @@ class BubbleView(
                     tonalElevation = 6.dp,
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
+                        val oscEnabled = remember {
+                            VrChatOscSettings(context).enabled
+                        }
                         TitleBar(
                             inputManager = service.inputManager,
                             compact = compact,
+                            // OSC 有効時だけ chatbox 文字数を表示。0 のときは隠す。
+                            chatboxLength = if (oscEnabled) service.draftPreview.value.length else 0,
                             onToggleCompact = {
                                 compact = !compact
                                 bubbleSettings.compactMode = compact
@@ -145,9 +151,6 @@ class BubbleView(
                             onClose = { service.stopBubble() },
                             onDrag = { dx, dy -> applyDrag(dx, dy) },
                         )
-                        val oscEnabled = remember {
-                            VrChatOscSettings(context).enabled
-                        }
                         if (oscEnabled) {
                             DraftPreview(service.draftPreview.value)
                         }
@@ -266,6 +269,7 @@ private fun DraftPreview(text: String) {
 private fun TitleBar(
     inputManager: GamepadInputManager,
     compact: Boolean,
+    chatboxLength: Int,
     onToggleCompact: () -> Unit,
     onClose: () -> Unit,
     onDrag: (dx: Float, dy: Float) -> Unit,
@@ -302,6 +306,9 @@ private fun TitleBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+            if (chatboxLength > 0) {
+                ChatboxLengthChip(length = chatboxLength)
+            }
             TitleIconButton(
                 label = if (compact) "\u25B8" else "\u25BE",  // ▸ / ▾
                 contentDescription = if (compact) "展開" else "折りたたむ",
@@ -314,6 +321,25 @@ private fun TitleBar(
             )
         }
     }
+}
+
+/// タイトルバー右側の chatbox 文字数表示。144 超過時は赤反転。
+@Composable
+private fun ChatboxLengthChip(length: Int) {
+    val max = VrChatOscOutput.MAX_CHATBOX_LEN
+    val over = length >= max
+    val bg = if (over) MaterialTheme.colorScheme.error
+             else MaterialTheme.colorScheme.surfaceContainerLow
+    val fg = if (over) MaterialTheme.colorScheme.onError
+             else MaterialTheme.colorScheme.onSurfaceVariant
+    Text(
+        text = "$length/$max",
+        fontSize = 10.sp,
+        color = fg,
+        modifier = Modifier
+            .background(bg, RoundedCornerShape(percent = 50))
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+    )
 }
 
 @Composable

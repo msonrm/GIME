@@ -236,6 +236,7 @@ fun GimeApp(
                 inputManager = inputManager,
                 vrChatEnabled = vrChatEnabled,
                 onVrChatBadgeClick = { showVrChat = true },
+                chatboxLength = textFieldValue.text.length,
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -257,6 +258,10 @@ fun GamepadVisualizer(
     /// VRChat OSC アクティブバッジを表示するか。
     /// バブル（VRChat 専用運用）では冗長なので false。MainActivity / IME は true。
     showVrChatBadge: Boolean = true,
+    /// chatbox に送る下書きの長さ。VrChatOscOutput.MAX_CHATBOX_LEN と突き合わせて
+    /// `N/144` カウンターをバッジ横に出す。0 のときは非表示。バブル側は
+    /// タイトルバーで別途カウンターを出すので showVrChatBadge=false の際は隠す。
+    chatboxLength: Int = 0,
 ) {
     // compact モードでは外枠の背景とパディングを省いて省スペース化。
     // 内部の composing/候補ブロックは個別に背景を持っているので見栄えは崩れない。
@@ -271,7 +276,15 @@ fun GamepadVisualizer(
     Column(modifier = outerModifier) {
         // VRChat OSC 有効時のバッジ（iPad 版と対称。タップで VRChat 設定画面を開く）
         if (vrChatEnabled && showVrChatBadge) {
-            VrChatActiveBadge(onClick = onVrChatBadgeClick)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                VrChatActiveBadge(onClick = onVrChatBadgeClick)
+                if (chatboxLength > 0) {
+                    ChatboxLengthCounter(length = chatboxLength)
+                }
+            }
             Spacer(modifier = Modifier.height(8.dp))
         }
 
@@ -922,4 +935,27 @@ private fun VrChatActiveBadge(onClick: () -> Unit) {
             fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
         )
     }
+}
+
+/// chatbox の下書き文字数カウンター。`N/144` 形式で表示し、超過時は赤く反転。
+/// 144 文字を超えた分は VrChatOscOutput が黙ってトリムするため、その警告を
+/// ユーザーに見せるためのもの。
+@Composable
+private fun ChatboxLengthCounter(length: Int) {
+    val max = com.gime.android.osc.VrChatOscOutput.MAX_CHATBOX_LEN
+    val over = length >= max
+    val bg = if (over) MaterialTheme.colorScheme.error
+             else MaterialTheme.colorScheme.surfaceContainerHigh
+    val fg = if (over) MaterialTheme.colorScheme.onError
+             else MaterialTheme.colorScheme.onSurfaceVariant
+    Text(
+        text = "$length/$max",
+        color = fg,
+        fontSize = 11.sp,
+        fontWeight = if (over) androidx.compose.ui.text.font.FontWeight.SemiBold
+                     else androidx.compose.ui.text.font.FontWeight.Normal,
+        modifier = Modifier
+            .background(bg, RoundedCornerShape(percent = 50))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    )
 }
