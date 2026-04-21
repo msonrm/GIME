@@ -25,6 +25,17 @@ public final class VrChatOscOutput {
     private var pendingText: String?
     private var debounceTask: Task<Void, Never>?
 
+    /// 確定時のみ送信するモード。VRChat Mobile が下書き受信で chatbox 入力 UI を
+    /// 開いてしまう問題を回避するために使う。ON の間は `sendComposingText` が
+    /// `/chatbox/input` 下書きを送らず、`commit` だけが実際に `/chatbox/input` を
+    /// 送る。typing indicator は `sendTypingIndicator` で別途制御する。
+    public var commitOnly: Bool = false
+
+    /// `/chatbox/typing`（タイピング 3 点インジケータ）を送るか。
+    /// ON: composing 開始で typing=true、確定 or クリアで typing=false。
+    /// OFF: typing 系パケットを一切送らない。`commitOnly` と独立。
+    public var sendTypingIndicator: Bool = true
+
     public init(sender: OscSender) {
         self.sender = sender
     }
@@ -39,10 +50,11 @@ public final class VrChatOscOutput {
             finishTyping()
             return
         }
-        if !typingActive {
+        if sendTypingIndicator && !typingActive {
             typingActive = true
             sender.send("/chatbox/typing", .bool(true))
         }
+        if commitOnly { return }
         pendingText = text
         debounceTask?.cancel()
         debounceTask = Task { @MainActor [weak self] in
@@ -74,18 +86,28 @@ public final class VrChatOscOutput {
             "/chatbox/input",
             .string(body), .bool(true), .bool(true)
         )
-        sender.send("/chatbox/typing", .bool(false))
+        if sendTypingIndicator {
+            sender.send("/chatbox/typing", .bool(false))
+        }
         lastSentBody = ""
         typingActive = false
     }
 
     /// typing indicator を OFF にする（composing を捨てたとき）。
+    /// `commitOnly` 時は `/chatbox/input` クリアをスキップし、typing=false は
+    /// `sendTypingIndicator` に従って送る。
     public func finishTyping() {
-        if !typingActive && lastSentBody.isEmpty { return }
+        let hadTyping = typingActive
+        let hadBody = !lastSentBody.isEmpty
+        if !hadTyping && !hadBody { return }
         typingActive = false
         lastSentBody = ""
-        sender.send("/chatbox/typing", .bool(false))
-        sender.send("/chatbox/input", .string(""), .bool(false), .bool(false))
+        if hadTyping && sendTypingIndicator {
+            sender.send("/chatbox/typing", .bool(false))
+        }
+        if hadBody && !commitOnly {
+            sender.send("/chatbox/input", .string(""), .bool(false), .bool(false))
+        }
     }
 
     /// 送信先を runtime に変更。

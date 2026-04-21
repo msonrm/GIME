@@ -44,6 +44,7 @@ struct VrChatSettingsView: View {
                 descriptionSection
                 enableSection
                 targetSection
+                sendOptionsSection
                 testSection
                 receiverSection
                 logSection
@@ -140,6 +141,21 @@ struct VrChatSettingsView: View {
                 }
             }
         )
+    }
+
+    private var sendOptionsSection: some View {
+        Section {
+            Toggle("確定時のみ送信", isOn: $settings.commitOnlyMode)
+            Toggle("タイピングインジケーター", isOn: $settings.typingIndicatorEnabled)
+        } header: {
+            Text("送信オプション")
+        } footer: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("確定時のみ送信: ON にすると composing 中の下書き（/chatbox/input sendMessage=false）を送らず、LS 確定時のみ送信します。VRChat Mobile で chatbox の入力 UI が開いてしまう場合に有効。")
+                Text("タイピングインジケーター: ON でアバター頭上の 3 点インジケータ（/chatbox/typing）を送信。OFF で一切送らない。")
+            }
+            .font(.caption2)
+        }
     }
 
     private var testSection: some View {

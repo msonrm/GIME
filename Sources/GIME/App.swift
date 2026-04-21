@@ -251,6 +251,12 @@ struct ContentView: View {
         .onChange(of: vrChatSettings.port) { _, _ in
             refreshVrChatOutput()
         }
+        .onChange(of: vrChatSettings.commitOnlyMode) { _, _ in
+            refreshVrChatOutput()
+        }
+        .onChange(of: vrChatSettings.typingIndicatorEnabled) { _, _ in
+            refreshVrChatOutput()
+        }
     }
 
     // MARK: - VRChat OSC 連携
@@ -281,6 +287,8 @@ struct ContentView: View {
                 let sender = OscSender(host: vrChatSettings.host, port: vrChatSettings.port)
                 vrChatOutput = VrChatOscOutput(sender: sender)
             }
+            vrChatOutput?.commitOnly = vrChatSettings.commitOnlyMode
+            vrChatOutput?.sendTypingIndicator = vrChatSettings.typingIndicatorEnabled
         } else {
             vrChatOutput?.close()
             vrChatOutput = nil
