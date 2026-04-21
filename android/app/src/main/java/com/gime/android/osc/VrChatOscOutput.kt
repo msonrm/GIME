@@ -43,6 +43,18 @@ class VrChatOscOutput(
      */
     var sendTypingIndicator: Boolean = true
 
+    /**
+     * typing 開始エッジで送るカスタム OSC メッセージ。
+     * `null` なら送らない。アバターの考え中ポーズ等を叩くのに使う。
+     */
+    var typingStartMessage: Pair<String, Any>? = null
+
+    /**
+     * typing 終了エッジ（commit or finishTyping）で送るカスタム OSC メッセージ。
+     * `null` なら送らない。
+     */
+    var typingEndMessage: Pair<String, Any>? = null
+
     /// composing テキストの更新（debounce 付き）。
     /// 100ms 以内に連続呼び出しされた場合は最新の text のみが送信され、
     /// 途中の T9 rollback 等の過渡状態はスキップされる。
@@ -53,10 +65,17 @@ class VrChatOscOutput(
             finishTyping()
             return
         }
-        if (sendTypingIndicator && !typingActive) {
+        if (!typingActive) {
             typingActive = true
-            scope.launch {
-                runCatching { sender.send("/chatbox/typing", true) }
+            val shouldSendIndicator = sendTypingIndicator
+            val startMsg = typingStartMessage
+            if (shouldSendIndicator || startMsg != null) {
+                scope.launch {
+                    runCatching {
+                        if (shouldSendIndicator) sender.send("/chatbox/typing", true)
+                        if (startMsg != null) sender.send(startMsg.first, startMsg.second)
+                    }
+                }
             }
         }
         if (commitOnly) return
@@ -82,10 +101,14 @@ class VrChatOscOutput(
             finishTyping()
             return
         }
+        val wasTyping = typingActive
+        val shouldSendTypingFalse = sendTypingIndicator
+        val endMsg = if (wasTyping) typingEndMessage else null
         scope.launch {
             runCatching {
                 sender.send("/chatbox/input", body, true, true)
-                if (sendTypingIndicator) sender.send("/chatbox/typing", false)
+                if (shouldSendTypingFalse) sender.send("/chatbox/typing", false)
+                if (endMsg != null) sender.send(endMsg.first, endMsg.second)
             }
         }
         lastSentBody = ""
@@ -101,6 +124,7 @@ class VrChatOscOutput(
         if (!hadTyping && !hadBody) return
         typingActive = false
         lastSentBody = ""
+        val endMsg = if (hadTyping) typingEndMessage else null
         scope.launch {
             runCatching {
                 if (hadTyping && sendTypingIndicator) {
@@ -109,6 +133,7 @@ class VrChatOscOutput(
                 if (hadBody && !commitOnly) {
                     sender.send("/chatbox/input", "", false, false)
                 }
+                if (endMsg != null) sender.send(endMsg.first, endMsg.second)
             }
         }
     }

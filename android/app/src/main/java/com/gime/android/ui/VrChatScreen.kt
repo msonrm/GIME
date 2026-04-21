@@ -16,6 +16,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.gime.android.osc.CustomOscValueType
 import com.gime.android.osc.OscReceiver
 import com.gime.android.osc.OscSender
 import com.gime.android.osc.VrChatOscSettings
@@ -39,6 +40,11 @@ fun VrChatScreen(onClose: () -> Unit) {
     var commitOnly by remember { mutableStateOf(settings.commitOnlyMode) }
     var typingIndicator by remember { mutableStateOf(settings.typingIndicatorEnabled) }
     var autoRelease by remember { mutableStateOf(settings.autoReleaseAfterSend) }
+    var customTypingEnabled by remember { mutableStateOf(settings.customTypingEnabled) }
+    var customTypingAddress by remember { mutableStateOf(settings.customTypingAddress) }
+    var customTypingValueType by remember { mutableStateOf(settings.customTypingValueType) }
+    var customTypingStart by remember { mutableStateOf(settings.customTypingStartValue) }
+    var customTypingEnd by remember { mutableStateOf(settings.customTypingEndValue) }
     var receiverEnabled by remember { mutableStateOf(settings.receiverEnabled) }
     var receiverPortText by remember { mutableStateOf(settings.receiverPort.toString()) }
     val logLines = remember { mutableStateListOf<String>() }
@@ -226,7 +232,104 @@ fun VrChatScreen(onClose: () -> Unit) {
                 },
             )
         }
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+
+        HorizontalDivider()
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // 入力中アクション（typing 開始/終了で任意の avatar parameter を叩く）
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("入力中アクションを送信", fontSize = 15.sp)
+                Text(
+                    "composing 開始時に「開始時の値」、終了時に「終了時の値」を\n" +
+                        "指定したアドレスへ送ります。アバター側に対応パラメータの\n" +
+                        "アニメーションが組まれている必要があります。",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = customTypingEnabled,
+                onCheckedChange = {
+                    customTypingEnabled = it
+                    settings.customTypingEnabled = it
+                },
+            )
+        }
+
+        if (customTypingEnabled) {
+            Spacer(modifier = Modifier.height(8.dp))
+            LabeledField(
+                label = "アドレス",
+                value = customTypingAddress,
+                onChange = {
+                    customTypingAddress = it
+                    settings.customTypingAddress = it
+                },
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("値の型", fontSize = 13.sp, modifier = Modifier.width(80.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    CustomOscValueType.values().forEach { t ->
+                        FilterChip(
+                            selected = customTypingValueType == t,
+                            onClick = {
+                                customTypingValueType = t
+                                settings.customTypingValueType = t
+                            },
+                            label = { Text(t.raw) },
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            LabeledField(
+                label = "開始時の値",
+                value = customTypingStart,
+                onChange = {
+                    customTypingStart = it
+                    settings.customTypingStartValue = it
+                },
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            LabeledField(
+                label = "終了時の値",
+                value = customTypingEnd,
+                onChange = {
+                    customTypingEnd = it
+                    settings.customTypingEndValue = it
+                },
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = {
+                    customTypingAddress = "/avatar/parameters/VRCEmote"
+                    customTypingValueType = CustomOscValueType.INT
+                    customTypingStart = "7"
+                    customTypingEnd = "0"
+                    settings.customTypingAddress = customTypingAddress
+                    settings.customTypingValueType = customTypingValueType
+                    settings.customTypingStartValue = customTypingStart
+                    settings.customTypingEndValue = customTypingEnd
+                },
+            ) { Text("プリセット: VRCEmote=7 (sadness)") }
+
+            if (settings.resolvedCustomTypingMessages() == null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "⚠ アドレスまたは値を解釈できません（アドレスは / で始まる必要あり、値は型に合わせて int/float/bool で記述）",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
 
         // テスト送信ボタン
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

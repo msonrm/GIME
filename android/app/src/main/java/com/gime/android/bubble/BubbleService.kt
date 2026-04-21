@@ -379,17 +379,22 @@ class BubbleService :
     private fun refreshVrChatOutput() {
         val s = vrChatSettings ?: return
         if (s.enabled) {
+            val customMsgs = s.resolvedCustomTypingMessages()
             val existing = vrChatOutput
             if (existing != null) {
                 existing.updateTarget(s.host, s.port)
                 existing.commitOnly = s.commitOnlyMode
                 existing.sendTypingIndicator = s.typingIndicatorEnabled
+                existing.typingStartMessage = customMsgs?.first
+                existing.typingEndMessage = customMsgs?.second
             } else {
                 try {
                     val sender = OscSender(s.host, s.port)
                     vrChatOutput = VrChatOscOutput(sender, serviceScope).apply {
                         commitOnly = s.commitOnlyMode
                         sendTypingIndicator = s.typingIndicatorEnabled
+                        typingStartMessage = customMsgs?.first
+                        typingEndMessage = customMsgs?.second
                     }
                 } catch (t: Throwable) {
                     Log.e(TAG, "OscSender init failed", t)

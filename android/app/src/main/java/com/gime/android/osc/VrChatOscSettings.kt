@@ -4,6 +4,19 @@ import android.content.Context
 import android.content.SharedPreferences
 
 /**
+ * カスタム typing アクションの値の型。SharedPreferences に String rawValue で永続化する。
+ */
+enum class CustomOscValueType(val raw: String) {
+    INT("int"),
+    FLOAT("float"),
+    BOOL("bool");
+
+    companion object {
+        fun fromRaw(raw: String?): CustomOscValueType? = values().firstOrNull { it.raw == raw }
+    }
+}
+
+/**
  * VRChat OSC 連携の設定。SharedPreferences バックエンド。
  *
  * デフォルトは全て OFF。ユーザーが明示的に有効化するまで
@@ -73,6 +86,66 @@ class VrChatOscSettings(context: Context) {
         get() = prefs.getBoolean(KEY_TYPING, DEFAULT_TYPING)
         set(v) { prefs.edit().putBoolean(KEY_TYPING, v).apply() }
 
+    /**
+     * typing の開始/終了エッジで任意の avatar parameter を叩くモード。
+     *
+     * 例: VRCEmote=7（悲しみ）を "考え中ポーズ" として使い、composing 開始で 7、
+     * 終了で 0 に戻す。アバター側に対応するアニメーションが組まれている必要あり。
+     */
+    var customTypingEnabled: Boolean
+        get() = prefs.getBoolean(KEY_CUSTOM_TYPING_ENABLED, DEFAULT_CUSTOM_TYPING_ENABLED)
+        set(v) { prefs.edit().putBoolean(KEY_CUSTOM_TYPING_ENABLED, v).apply() }
+
+    /** カスタム typing 時に叩く OSC アドレス（例: `/avatar/parameters/VRCEmote`）。 */
+    var customTypingAddress: String
+        get() = prefs.getString(KEY_CUSTOM_TYPING_ADDRESS, DEFAULT_CUSTOM_TYPING_ADDRESS)
+            ?: DEFAULT_CUSTOM_TYPING_ADDRESS
+        set(v) { prefs.edit().putString(KEY_CUSTOM_TYPING_ADDRESS, v).apply() }
+
+    /** 値の型。`customTypingStartValue` / `customTypingEndValue` の解釈に使う。 */
+    var customTypingValueType: CustomOscValueType
+        get() = CustomOscValueType.fromRaw(prefs.getString(KEY_CUSTOM_TYPING_VALUE_TYPE, null))
+            ?: DEFAULT_CUSTOM_TYPING_VALUE_TYPE
+        set(v) { prefs.edit().putString(KEY_CUSTOM_TYPING_VALUE_TYPE, v.raw).apply() }
+
+    /** typing 開始時に送る値（文字列。type に従って parse）。 */
+    var customTypingStartValue: String
+        get() = prefs.getString(KEY_CUSTOM_TYPING_START_VALUE, DEFAULT_CUSTOM_TYPING_START_VALUE)
+            ?: DEFAULT_CUSTOM_TYPING_START_VALUE
+        set(v) { prefs.edit().putString(KEY_CUSTOM_TYPING_START_VALUE, v).apply() }
+
+    /** typing 終了時に送る値（文字列。type に従って parse）。 */
+    var customTypingEndValue: String
+        get() = prefs.getString(KEY_CUSTOM_TYPING_END_VALUE, DEFAULT_CUSTOM_TYPING_END_VALUE)
+            ?: DEFAULT_CUSTOM_TYPING_END_VALUE
+        set(v) { prefs.edit().putString(KEY_CUSTOM_TYPING_END_VALUE, v).apply() }
+
+    /**
+     * start / end 値を OSC 送信用の `Any` に解決した Pair を返す。parse 失敗時や
+     * `customTypingEnabled == false`、アドレスが不正な場合は `null`。
+     */
+    fun resolvedCustomTypingMessages(): Pair<Pair<String, Any>, Pair<String, Any>>? {
+        if (!customTypingEnabled) return null
+        val trimmed = customTypingAddress.trim()
+        if (!trimmed.startsWith("/")) return null
+        val startArg = parseArgument(customTypingStartValue, customTypingValueType) ?: return null
+        val endArg = parseArgument(customTypingEndValue, customTypingValueType) ?: return null
+        return Pair(trimmed to startArg, trimmed to endArg)
+    }
+
+    private fun parseArgument(raw: String, type: CustomOscValueType): Any? {
+        val t = raw.trim()
+        return when (type) {
+            CustomOscValueType.INT -> t.toIntOrNull()
+            CustomOscValueType.FLOAT -> t.toFloatOrNull()
+            CustomOscValueType.BOOL -> when (t.lowercase()) {
+                "true", "1", "yes", "on" -> true
+                "false", "0", "no", "off" -> false
+                else -> null
+            }
+        }
+    }
+
     companion object {
         private const val PREFS_NAME = "vrchat_osc"
         private const val KEY_ENABLED = "enabled"
@@ -83,6 +156,11 @@ class VrChatOscSettings(context: Context) {
         private const val KEY_COMMIT_ONLY = "commitOnlyMode"
         private const val KEY_AUTO_RELEASE = "autoReleaseAfterSend"
         private const val KEY_TYPING = "typingIndicatorEnabled"
+        private const val KEY_CUSTOM_TYPING_ENABLED = "customTypingEnabled"
+        private const val KEY_CUSTOM_TYPING_ADDRESS = "customTypingAddress"
+        private const val KEY_CUSTOM_TYPING_VALUE_TYPE = "customTypingValueType"
+        private const val KEY_CUSTOM_TYPING_START_VALUE = "customTypingStartValue"
+        private const val KEY_CUSTOM_TYPING_END_VALUE = "customTypingEndValue"
 
         const val DEFAULT_ENABLED = false
         const val DEFAULT_HOST = "127.0.0.1"
@@ -92,5 +170,10 @@ class VrChatOscSettings(context: Context) {
         const val DEFAULT_COMMIT_ONLY = false
         const val DEFAULT_AUTO_RELEASE = true
         const val DEFAULT_TYPING = true
+        const val DEFAULT_CUSTOM_TYPING_ENABLED = false
+        const val DEFAULT_CUSTOM_TYPING_ADDRESS = "/avatar/parameters/VRCEmote"
+        val DEFAULT_CUSTOM_TYPING_VALUE_TYPE = CustomOscValueType.INT
+        const val DEFAULT_CUSTOM_TYPING_START_VALUE = "7"
+        const val DEFAULT_CUSTOM_TYPING_END_VALUE = "0"
     }
 }
