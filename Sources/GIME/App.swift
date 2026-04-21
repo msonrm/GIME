@@ -257,6 +257,21 @@ struct ContentView: View {
         .onChange(of: vrChatSettings.typingIndicatorEnabled) { _, _ in
             refreshVrChatOutput()
         }
+        .onChange(of: vrChatSettings.customTypingEnabled) { _, _ in
+            refreshVrChatOutput()
+        }
+        .onChange(of: vrChatSettings.customTypingAddress) { _, _ in
+            refreshVrChatOutput()
+        }
+        .onChange(of: vrChatSettings.customTypingValueType) { _, _ in
+            refreshVrChatOutput()
+        }
+        .onChange(of: vrChatSettings.customTypingStartValue) { _, _ in
+            refreshVrChatOutput()
+        }
+        .onChange(of: vrChatSettings.customTypingEndValue) { _, _ in
+            refreshVrChatOutput()
+        }
     }
 
     // MARK: - VRChat OSC 連携
@@ -289,6 +304,13 @@ struct ContentView: View {
             }
             vrChatOutput?.commitOnly = vrChatSettings.commitOnlyMode
             vrChatOutput?.sendTypingIndicator = vrChatSettings.typingIndicatorEnabled
+            if let msgs = vrChatSettings.resolvedCustomTypingMessages() {
+                vrChatOutput?.typingStartMessage = msgs.start
+                vrChatOutput?.typingEndMessage = msgs.end
+            } else {
+                vrChatOutput?.typingStartMessage = nil
+                vrChatOutput?.typingEndMessage = nil
+            }
         } else {
             vrChatOutput?.close()
             vrChatOutput = nil

@@ -36,6 +36,14 @@ public final class VrChatOscOutput {
     /// OFF: typing 系パケットを一切送らない。`commitOnly` と独立。
     public var sendTypingIndicator: Bool = true
 
+    /// typing 開始エッジで送るカスタム OSC メッセージ。
+    /// `nil` なら送らない。アバターの考え中ポーズ等を叩くのに使う。
+    public var typingStartMessage: (address: String, argument: OscArgument)?
+
+    /// typing 終了エッジ（`commit` or `finishTyping`）で送るカスタム OSC メッセージ。
+    /// `nil` なら送らない。
+    public var typingEndMessage: (address: String, argument: OscArgument)?
+
     public init(sender: OscSender) {
         self.sender = sender
     }
@@ -50,9 +58,14 @@ public final class VrChatOscOutput {
             finishTyping()
             return
         }
-        if sendTypingIndicator && !typingActive {
+        if !typingActive {
             typingActive = true
-            sender.send("/chatbox/typing", .bool(true))
+            if sendTypingIndicator {
+                sender.send("/chatbox/typing", .bool(true))
+            }
+            if let msg = typingStartMessage {
+                sender.send(msg.address, msg.argument)
+            }
         }
         if commitOnly { return }
         pendingText = text
@@ -89,8 +102,12 @@ public final class VrChatOscOutput {
         if sendTypingIndicator {
             sender.send("/chatbox/typing", .bool(false))
         }
+        let wasTyping = typingActive
         lastSentBody = ""
         typingActive = false
+        if wasTyping, let msg = typingEndMessage {
+            sender.send(msg.address, msg.argument)
+        }
     }
 
     /// typing indicator を OFF にする（composing を捨てたとき）。
@@ -107,6 +124,9 @@ public final class VrChatOscOutput {
         }
         if hadBody && !commitOnly {
             sender.send("/chatbox/input", .string(""), .bool(false), .bool(false))
+        }
+        if hadTyping, let msg = typingEndMessage {
+            sender.send(msg.address, msg.argument)
         }
     }
 

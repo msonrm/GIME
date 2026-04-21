@@ -45,6 +45,7 @@ struct VrChatSettingsView: View {
                 enableSection
                 targetSection
                 sendOptionsSection
+                typingActionSection
                 testSection
                 receiverSection
                 logSection
@@ -156,6 +157,66 @@ struct VrChatSettingsView: View {
             }
             .font(.caption2)
         }
+    }
+
+    /// typing 開始/終了エッジで任意の avatar parameter を叩くためのセクション。
+    /// MVP では 1 ペア（start/end）だけ。将来複数化する場合はこのセクションを
+    /// 配列化する方向で拡張できる。
+    private var typingActionSection: some View {
+        Section {
+            Toggle("入力中アクションを送信", isOn: $settings.customTypingEnabled)
+            if settings.customTypingEnabled {
+                LabeledContent("アドレス") {
+                    TextField("/avatar/parameters/VRCEmote", text: $settings.customTypingAddress)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .monospaced()
+                }
+                Picker("値の型", selection: $settings.customTypingValueType) {
+                    Text("int").tag(CustomOscValueType.int)
+                    Text("float").tag(CustomOscValueType.float)
+                    Text("bool").tag(CustomOscValueType.bool)
+                }
+                LabeledContent("開始時の値") {
+                    TextField("7", text: $settings.customTypingStartValue)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .monospaced()
+                }
+                LabeledContent("終了時の値") {
+                    TextField("0", text: $settings.customTypingEndValue)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .monospaced()
+                }
+                Button {
+                    applyVRCEmotePreset()
+                } label: {
+                    Label("プリセット: VRCEmote=7（sadness を考え中ポーズに流用）", systemImage: "wand.and.stars")
+                }
+                if settings.customTypingEnabled
+                    && settings.resolvedCustomTypingMessages() == nil {
+                    Text("⚠ アドレスまたは値を解釈できません（アドレスは / で始まる必要あり、値は型に合わせて int/float/bool で記述）")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+        } header: {
+            Text("入力中アクション")
+        } footer: {
+            Text("composing 開始時に「開始時の値」、終了時に「終了時の値」を指定したアドレスへ送ります。アバター側に対応パラメータのアニメーションが組まれている必要があります。VRCEmote プリセットは VRChat SDK のデフォルト Expression を流用するもので、多くのアバターが `1=wave / 7=sadness` 等をそのまま継承しているため無改造で動くことがあります。")
+                .font(.caption2)
+        }
+    }
+
+    private func applyVRCEmotePreset() {
+        settings.customTypingAddress = "/avatar/parameters/VRCEmote"
+        settings.customTypingValueType = .int
+        settings.customTypingStartValue = "7"
+        settings.customTypingEndValue = "0"
     }
 
     private var testSection: some View {
