@@ -29,10 +29,19 @@ struct GamepadSnapshot: Sendable {
     init() {}
 
     init(_ gp: GCExtendedGamepad) {
-        dpadUp = gp.dpad.up.isPressed
-        dpadDown = gp.dpad.down.isPressed
-        dpadLeft = gp.dpad.left.isPressed
-        dpadRight = gp.dpad.right.isPressed
+        // D-pad 同士は排他的に扱う（対角入力時は軸値が大きい方向を採用）。
+        // isPressed を OR するとアナログ十字キーや finger-slide 時に
+        // 隣接方向が同時に true となり、resolveConsonantRow の優先順位で
+        // 意図しない row（例: LB+↓ で → が混入 → ら行「る」）が選ばれる。
+        let dpX = gp.dpad.xAxis.value
+        let dpY = gp.dpad.yAxis.value
+        let dpAbsX = abs(dpX)
+        let dpAbsY = abs(dpY)
+        let dpDominant = max(dpAbsX, dpAbsY) > 0.5
+        dpadUp    = dpDominant && dpAbsY >= dpAbsX && dpY > 0
+        dpadDown  = dpDominant && dpAbsY >= dpAbsX && dpY < 0
+        dpadLeft  = dpDominant && dpAbsX > dpAbsY && dpX < 0
+        dpadRight = dpDominant && dpAbsX > dpAbsY && dpX > 0
         buttonA = gp.buttonA.isPressed
         buttonB = gp.buttonB.isPressed
         buttonX = gp.buttonX.isPressed
