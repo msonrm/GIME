@@ -1,19 +1,20 @@
 package com.gime.android.engine
 
 /// Devanagari akshara 合成エンジン
-/// Korean 받침式「即時適用 + 巻き戻し」の原理を踏襲。
 ///
 /// Devanagari の音韻論的前提:
 ///   - 子音は固有の schwa (a) を背負う（क 単独で "ka"）
-///   - 次の子音が来ると virama (्) で schwa を殺し conjunct 化
-///     （क + ् + ष = क्ष "kṣa"）
+///   - conjunct は virama (्) で schwa を殺して作る（क + ् + ष = क्ष "kṣa"）
 ///   - 母音 matra が来ると schwa を置換して akshara 確定（क + ि = कि "ki"）
 ///   - anusvara (ं) / chandrabindu (ँ) / visarga (ः) は cluster 末尾修飾
 ///   - nukta (़) は子音に直後置（क → क़）
 ///
-/// このエンジンは「ユーザーが virama を明示的に打たないで済む」ことを重視し、
-/// 子音が連続した時点で自動的に virama を挿入して conjunct 化する。
-/// 明示的な halant 終端（Sanskrit 文末等）は別 API で提供。
+/// 重要な設計判断: **子音連続は auto-conjunct しない**。
+/// 例えば `नम` (namaste の最初の 2 字) は न と म が別アクシャラで、
+/// 両方 inherent schwa 付き。自動 conjunct すると `न्म` になり誤り。
+/// ITRANS / Google Hindi IME 等と同じく、**conjunct は halant (RT) を
+/// 明示的に打つ**方式を採用。
+///   例: क्ष の入力 = 子音क → RT(halant) → 子音ष
 
 object DevanagariUnicode {
     const val VIRAMA: Char = '्'       // ्
@@ -111,18 +112,14 @@ class DevanagariComposer {
     // MARK: - 入力 API
 
     /// 子音を入力する。
-    /// - cluster オープン中（直前の子音が schwa 持ち）なら virama + 新子音 (conjunct)。
-    /// - それ以外は新子音単独（新 cluster 開始）。
+    /// 前の状態にかかわらず子音を単純に追加する（auto-conjunct しない）。
+    /// 直前が HALANT_CLOSED（明示 halant 直後）の場合、結果として virama + 子音 の
+    /// Unicode シーケンスになり、レンダリング上は conjunct になる。
     fun inputConsonant(consonant: Char): ComposerOutput {
-        val appendText = if (state == DevaState.CONSONANT_OPEN) {
-            "${DevanagariUnicode.VIRAMA}$consonant"
-        } else {
-            consonant.toString()
-        }
-        buffer += appendText
+        buffer += consonant
         state = DevaState.CONSONANT_OPEN
         lastConsonantHasNukta = false
-        return ComposerOutput(appendText, replaceCount = 0)
+        return ComposerOutput(consonant.toString(), replaceCount = 0)
     }
 
     /// matra（従属母音記号）を入力する。子音に対してのみ適用可能。

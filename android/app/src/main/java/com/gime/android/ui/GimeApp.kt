@@ -583,7 +583,7 @@ fun DpadDisplay(inputManager: GamepadInputManager) {
                     pressed = inputManager.btnRT,
                 )
                 ShoulderChip(
-                    label = rbLabel(mode, activeRowFaceChars),
+                    label = rbLabel(mode, activeRowFaceChars, inputManager),
                     pressed = inputManager.btnRB,
                 )
             }
@@ -777,8 +777,11 @@ private fun DevaClusterCell(
 }
 
 /// Devanagari 用フェイスボタン（varnamala 時計回り: ↑a →i ↓u ←e）
+/// LT 同時押しで A → ऋ にシフト（他の 3 つは変化なし）
 @Composable
 private fun DevaFaceButtons(inputManager: GamepadInputManager) {
+    val lt = inputManager.btnLT
+    val downChar = if (lt) "ऋ" else "उ"
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         FaceButton("अ", inputManager.btnY)
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -786,7 +789,7 @@ private fun DevaFaceButtons(inputManager: GamepadInputManager) {
             FaceButton("", pressed = false, isCenter = true)
             FaceButton("इ", inputManager.btnB)
         }
-        FaceButton("उ", inputManager.btnA)
+        FaceButton(downChar, inputManager.btnA)
     }
 }
 
@@ -830,8 +833,9 @@ private fun ltLabel(
     com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED,
     com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL -> ""
     com.gime.android.engine.GamepadInputMode.DEVANAGARI ->
-        // 非 varga 時のみ意味を持つ（shift で semivowel ↔ sibilant）
-        if (m.devaNonVargaActive) "शष" else "—"
+        // varga モード: LT + A = ऋ / LT + RB = nukta
+        // 非 varga モード: D-pad を semivowel/sibilant 間で切替
+        if (m.devaNonVargaActive) "शष" else "ऋ़"
 }
 
 /// LB ラベル: 押下中は ●、そうでなければ別レイヤーの手がかりを表示
@@ -860,12 +864,14 @@ private fun rtLabel(mode: com.gime.android.engine.GamepadInputMode): String = wh
     com.gime.android.engine.GamepadInputMode.DEVANAGARI -> "्"  // halant (virama)
 }
 
-/// RB ラベル: Devanagari は nukta 固定、他モードは activeRow の RB 文字を流用
+/// RB ラベル: Devanagari は LT 無しで ओ / LT 併用で nukta ़。他モードは activeRow 流用
 private fun rbLabel(
     mode: com.gime.android.engine.GamepadInputMode,
     activeRowFaceChars: Array<String>,
+    m: GamepadInputManager,
 ): String = when (mode) {
-    com.gime.android.engine.GamepadInputMode.DEVANAGARI -> "़"  // nukta
+    com.gime.android.engine.GamepadInputMode.DEVANAGARI ->
+        if (m.btnLT) "़" else "ओ"
     else -> activeRowFaceChars.getOrElse(0) { "RB" }
 }
 

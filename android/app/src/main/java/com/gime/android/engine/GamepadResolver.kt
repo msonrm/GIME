@@ -445,6 +445,17 @@ val DEVA_FACE_VOWEL_MATRA: Map<VowelButton, Char> = mapOf(
     VowelButton.I to 'े',  // e → े
 )
 
+/// LT 同時押し時の拡張母音（face button 不足分を補う）
+/// ऋ は Sanskrit 借用語でのみ使われる低頻度母音なので LT + A で隔離。
+/// ओ は RB 単押しに昇格（Hindi で頻出するため）。
+///   LT + A (u-slot) = ṛ (ऋ / ृ)
+val DEVA_FACE_VOWEL_INDEPENDENT_LT: Map<VowelButton, Char> = mapOf(
+    VowelButton.O to 'ऋ',  // LT + A = ṛ
+)
+val DEVA_FACE_VOWEL_MATRA_LT: Map<VowelButton, Char> = mapOf(
+    VowelButton.O to 'ृ',
+)
+
 /// Devanagari 用 LS 方向解決
 enum class DevaLsDirection { NEUTRAL, UP, RIGHT, DOWN, LEFT }
 

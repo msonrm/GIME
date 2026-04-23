@@ -1747,12 +1747,18 @@ class GamepadInputManager {
             if (consonant != null) {
                 val out = devanagariComposer.inputConsonant(consonant)
                 onDirectInsert?.invoke(out.text, out.replaceCount)
+                // 非 varga サブレイヤーは 1 文字入力で自動 OFF（one-shot）。
+                // 連続 2 文字非 varga が必要な場合は L3 を再度押す。
+                if (devaNonVargaActive) {
+                    devaNonVargaActive = false
+                }
             }
         }
 
         // === 鼻音（LB 単独）emission ===
-        // 非 varga サブレイヤー中は LB を無視（鼻音は varga モードでのみ）
-        if (lbEdge && !devaNonVargaActive) {
+        // LB は常に「現 LS 方向の varga 鼻音」を発火（非 varga 状態に無関係）。
+        // non-varga 中の LB も varga 鼻音として扱う（LS 方向が 5 varga いずれかを指す）。
+        if (lbEdge) {
             val nasal = DEVA_VARGA_CONSONANTS[varga.index][4]
             val out = devanagariComposer.inputConsonant(nasal)
             onDirectInsert?.invoke(out.text, out.replaceCount)
@@ -1761,9 +1767,12 @@ class GamepadInputManager {
         // === 母音 emission ===
         // 合成中（子音直後）なら matra、そうでなければ independent vowel。
         // composer.inputMatra() が null を返したら independent を試す。
+        // LT 同時押しで拡張母音 (LT+A=ṛ)。ओ は RB 単押しに昇格したので LT+Y は通常 अ。
         if (faceEdge && face != null) {
-            val matra = DEVA_FACE_VOWEL_MATRA[face]
-            val indep = DEVA_FACE_VOWEL_INDEPENDENT[face]
+            val matra = if (ltNow) (DEVA_FACE_VOWEL_MATRA_LT[face] ?: DEVA_FACE_VOWEL_MATRA[face])
+                        else DEVA_FACE_VOWEL_MATRA[face]
+            val indep = if (ltNow) (DEVA_FACE_VOWEL_INDEPENDENT_LT[face] ?: DEVA_FACE_VOWEL_INDEPENDENT[face])
+                        else DEVA_FACE_VOWEL_INDEPENDENT[face]
             if (matra != null && indep != null) {
                 val matraOut = devanagariComposer.inputMatra(matra)
                 if (matraOut != null) {
@@ -1781,10 +1790,21 @@ class GamepadInputManager {
             if (out != null) onDirectInsert?.invoke(out.text, out.replaceCount)
         }
 
-        // === RB edge: nukta（直前子音に付加）===
+        // === RB edge: ओ（単押し）/ nukta（LT 同時押し）===
+        // ओ は Hindi で頻出なので RB 単押しに配置。nukta は稀なので LT+RB。
         if (gp.rb && !prevRB) {
-            val out = devanagariComposer.inputNukta()
-            if (out != null) onDirectInsert?.invoke(out.text, out.replaceCount)
+            if (ltNow) {
+                val out = devanagariComposer.inputNukta()
+                if (out != null) onDirectInsert?.invoke(out.text, out.replaceCount)
+            } else {
+                val matraOut = devanagariComposer.inputMatra('ो')
+                if (matraOut != null) {
+                    onDirectInsert?.invoke(matraOut.text, matraOut.replaceCount)
+                } else {
+                    val out = devanagariComposer.inputIndependentVowel('ओ')
+                    onDirectInsert?.invoke(out.text, out.replaceCount)
+                }
+            }
         }
 
         // === RS ↑: anusvara ↔ chandrabindu トグル ===
