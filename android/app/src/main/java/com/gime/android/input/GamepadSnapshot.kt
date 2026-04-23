@@ -47,16 +47,26 @@ data class GamepadSnapshot(
     val rtValue: Float get() = maxOf(rtValueKey, rtValueAxis)
 
     companion object {
-        /// MotionEvent からアナログ軸を更新する
+        /// MotionEvent からアナログ軸を更新する。
+        /// D-pad の HAT 軸は対角入力（hatX, hatY が両方 >0.5 や 0.707, 0.707 など）
+        /// を報告することがある。iOS 版 (PR #502, commit 58fad94) と同じく、
+        /// 絶対値優位な軸だけを採用して「D-pad 同士は排他」を担保する。
+        /// これにより LB+↓+Y で「？」狙いが → が混入して row 8 (ら行「る」)
+        /// に化ける現象を防ぐ。
         fun fromMotionEvent(event: MotionEvent, current: GamepadSnapshot): GamepadSnapshot {
             val hatX = event.getAxisValue(MotionEvent.AXIS_HAT_X)
             val hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
+            val absX = kotlin.math.abs(hatX)
+            val absY = kotlin.math.abs(hatY)
+            // 同値（0.707, 0.707 等の対角）は Y 軸勝ち。iOS と同じ規約。
+            val xDominant = absX > absY
+            val yDominant = absY >= absX
             return current.copy(
-                // D-pad（HAT 軸由来は毎回値で上書き。KeyEvent 由来は別フィールドで保持）
-                dpadLeftHat = hatX < -0.5f,
-                dpadRightHat = hatX > 0.5f,
-                dpadUpHat = hatY < -0.5f,
-                dpadDownHat = hatY > 0.5f,
+                // D-pad（HAT 軸由来）: 排他的な単一方向のみを true にする。
+                dpadLeftHat = xDominant && hatX < -0.5f,
+                dpadRightHat = xDominant && hatX > 0.5f,
+                dpadUpHat = yDominant && hatY < -0.5f,
+                dpadDownHat = yDominant && hatY > 0.5f,
                 // 左スティック
                 leftStickX = event.getAxisValue(MotionEvent.AXIS_X),
                 leftStickY = event.getAxisValue(MotionEvent.AXIS_Y),
@@ -71,7 +81,13 @@ data class GamepadSnapshot(
             )
         }
 
-        /// KeyEvent でボタン状態を更新する
+        /// KeyEvent でボタン状態を更新する。
+        /// D-pad は物理的に排他（4 方向から 1 つだけ）なので、press edge で
+        /// 他 3 方向を強制的にクリアする。BT 経由でイベント順序が崩れ、
+        /// 例えば「↓ release より → press が先に届く」ようなケースで
+        /// dpadDownKey と dpadRightKey が同時 true になり、
+        /// resolveConsonantRow の優先順位で row=8 (→ ら行「る」) が
+        /// row=9 (↓ わ行「？」) を乗っ取る事故を防ぐ。
         fun updateFromKeyEvent(event: KeyEvent, pressed: Boolean, current: GamepadSnapshot): GamepadSnapshot {
             return when (event.keyCode) {
                 KeyEvent.KEYCODE_BUTTON_A -> current.copy(buttonA = pressed)
@@ -86,10 +102,18 @@ data class GamepadSnapshot(
                 KeyEvent.KEYCODE_BUTTON_SELECT -> current.copy(back = pressed)
                 KeyEvent.KEYCODE_BUTTON_THUMBL -> current.copy(lsClick = pressed)
                 KeyEvent.KEYCODE_BUTTON_THUMBR -> current.copy(rsClick = pressed)
-                KeyEvent.KEYCODE_DPAD_UP -> current.copy(dpadUpKey = pressed)
-                KeyEvent.KEYCODE_DPAD_DOWN -> current.copy(dpadDownKey = pressed)
-                KeyEvent.KEYCODE_DPAD_LEFT -> current.copy(dpadLeftKey = pressed)
-                KeyEvent.KEYCODE_DPAD_RIGHT -> current.copy(dpadRightKey = pressed)
+                KeyEvent.KEYCODE_DPAD_UP ->
+                    if (pressed) current.copy(dpadUpKey = true, dpadDownKey = false, dpadLeftKey = false, dpadRightKey = false)
+                    else current.copy(dpadUpKey = false)
+                KeyEvent.KEYCODE_DPAD_DOWN ->
+                    if (pressed) current.copy(dpadDownKey = true, dpadUpKey = false, dpadLeftKey = false, dpadRightKey = false)
+                    else current.copy(dpadDownKey = false)
+                KeyEvent.KEYCODE_DPAD_LEFT ->
+                    if (pressed) current.copy(dpadLeftKey = true, dpadRightKey = false, dpadUpKey = false, dpadDownKey = false)
+                    else current.copy(dpadLeftKey = false)
+                KeyEvent.KEYCODE_DPAD_RIGHT ->
+                    if (pressed) current.copy(dpadRightKey = true, dpadLeftKey = false, dpadUpKey = false, dpadDownKey = false)
+                    else current.copy(dpadRightKey = false)
                 else -> current
             }
         }
