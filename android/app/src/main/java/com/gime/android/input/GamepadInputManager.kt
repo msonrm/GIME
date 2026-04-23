@@ -45,6 +45,15 @@ class GamepadInputManager {
     var koreanSmartJamo: Boolean by mutableStateOf(false)
         private set
 
+    // Devanagari モード状態
+    /// 非 varga サブレイヤー中か（L3 = LS クリックでトグル）。
+    /// ON の間、D-pad は semivowel (य र ल व) / LT 押下時は sibilant (श ष स ह) を返す。
+    var devaNonVargaActive: Boolean by mutableStateOf(false)
+        private set
+    /// 現在の LS 方向（ビジュアライザ用）。
+    var devaLsDir: DevaLsDirection by mutableStateOf(DevaLsDirection.NEUTRAL)
+        private set
+
     // 中国語モード状態
     var pinyinBuffer: String by mutableStateOf("")
         private set
@@ -146,6 +155,10 @@ class GamepadInputManager {
             koreanJamoLock = false
             koreanSmartJamo = false
             resetJamoState()
+            devanagariComposer.commit()
+            devaNonVargaActive = false
+            prevDevaDpadDir = DevaDpadDir.NONE
+            prevDevaFace = null
             rStickDownTapCount = 0
             rStickDownLastTime = 0
         }
@@ -174,6 +187,7 @@ class GamepadInputManager {
     /// 非同期変換用のスコープ。MainActivity から注入する。
     var coroutineScope: CoroutineScope? = null
     private val koreanComposer = KoreanComposer()
+    private val devanagariComposer = DevanagariComposer()
 
     // MARK: - Private State
 
@@ -267,6 +281,13 @@ class GamepadInputManager {
     // 中国語スライディングウィンドウ
     private var pinyinWindowStart: Int = 0
     private val pinyinWindowSize: Int = 9
+
+    // Devanagari 内部状態
+    /// D-pad 前回方向（devanagari の stop 変化検知用）
+    private var prevDevaDpadDir: DevaDpadDir = DevaDpadDir.NONE
+    /// 前回のフェイスボタン（母音エッジ検出）
+    private var prevDevaFace: VowelButton? = null
+    /// LS 押し込み (lsClick) の前回状態は既存の prevLS を使用
 
     val visiblePinyinCandidates: List<PinyinCandidate>
         get() {
@@ -463,6 +484,11 @@ class GamepadInputManager {
             koreanJamoLock = false
             koreanSmartJamo = false
             resetJamoState()
+            // Devanagari もリセット
+            devanagariComposer.commit()
+            devaNonVargaActive = false
+            prevDevaDpadDir = DevaDpadDir.NONE
+            prevDevaFace = null
             // rStickDown 多段タップもリセット
             rStickDownTapCount = 0
             rStickDownLastTime = 0
@@ -512,6 +538,15 @@ class GamepadInputManager {
                     releaseKoreanSmartJamo()
                     resetJamoState()
                     onDeleteBackward?.invoke()
+                } else if (currentMode == GamepadInputMode.DEVANAGARI) {
+                    // Devanagari: composer の buffer を 1 文字 backspace し
+                    // 表示も 1 文字削除。composer backspace が state を再計算する。
+                    val out = devanagariComposer.backspace()
+                    if (out != null) {
+                        onDirectInsert?.invoke(out.text, out.replaceCount)
+                    } else {
+                        onDeleteBackward?.invoke()
+                    }
                 } else {
                     onDeleteBackward?.invoke()
                 }
@@ -548,6 +583,10 @@ class GamepadInputManager {
                             pinyinSelectedIndex = 0
                             pinyinWindowStart = 0
                         }
+                    }
+                    GamepadInputMode.DEVANAGARI -> {
+                        // cluster を確定して next input を新 cluster として扱う
+                        devanagariComposer.commit()
                     }
                     else -> {}
                 }
@@ -616,6 +655,16 @@ class GamepadInputManager {
                             rStickDownLastTime = 0
                         }
                     }
+                    GamepadInputMode.DEVANAGARI -> when (rStickDownTapCount) {
+                        // Devanagari: ␣ → । (danda) → ॥ (double danda)
+                        1 -> onDirectInsert?.invoke(" ", 0)
+                        2 -> onDirectInsert?.invoke("।", 1)
+                        else -> {
+                            onDirectInsert?.invoke("॥", 1)
+                            rStickDownTapCount = 0
+                            rStickDownLastTime = 0
+                        }
+                    }
                 }
             }
         }
@@ -649,18 +698,25 @@ class GamepadInputManager {
             }
             else -> {
                 // カーソル移動の前に韓国語の合成状態を確定 + Smart Jamo 解除
-                if ((lStickLeft && !prevLStickLeft) || (lStickRight && !prevLStickRight) ||
-                    (lStickUp && !prevLStickUp) || (lStickDown && !prevLStickDown)) {
+                val anyLStickEdge = (lStickLeft && !prevLStickLeft) ||
+                    (lStickRight && !prevLStickRight) ||
+                    (lStickUp && !prevLStickUp) ||
+                    (lStickDown && !prevLStickDown)
+                if (anyLStickEdge) {
                     if (currentMode == GamepadInputMode.KOREAN) {
                         commitKoreanComposer()
                         releaseKoreanSmartJamo()
                         resetJamoState()
                     }
                 }
-                if (lStickLeft && !prevLStickLeft) onCursorMove?.invoke(-1)
-                if (lStickRight && !prevLStickRight) onCursorMove?.invoke(1)
-                if (lStickUp && !prevLStickUp) onCursorMoveVertical?.invoke(-1)
-                if (lStickDown && !prevLStickDown) onCursorMoveVertical?.invoke(1)
+                // Devanagari モードでは LS 方向は varga 選択に使うので、カーソル移動には使わない。
+                // LS 方向入力時はカーソル移動をスキップ（何もしない）。
+                if (currentMode != GamepadInputMode.DEVANAGARI) {
+                    if (lStickLeft && !prevLStickLeft) onCursorMove?.invoke(-1)
+                    if (lStickRight && !prevLStickRight) onCursorMove?.invoke(1)
+                    if (lStickUp && !prevLStickUp) onCursorMoveVertical?.invoke(-1)
+                    if (lStickDown && !prevLStickDown) onCursorMoveVertical?.invoke(1)
+                }
             }
         }
 
@@ -671,6 +727,12 @@ class GamepadInputManager {
             GamepadInputMode.KOREAN -> handleKoreanInput(gp, row, vowel, ltNow, rtNow, rStickUp, rStickRight, now)
             GamepadInputMode.CHINESE_SIMPLIFIED -> handleChineseInput(gp, row, vowel, rStickUp, rStickRight, now)
             GamepadInputMode.CHINESE_TRADITIONAL -> handleZhuyinInput(gp, row, vowel, rStickUp, rStickRight, now)
+            GamepadInputMode.DEVANAGARI -> handleDevanagariInput(
+                gp, ltNow, rtNow,
+                rStickUp, rStickDown, rStickLeft, rStickRight,
+                lStickUp, lStickDown, lStickLeft, lStickRight,
+                now,
+            )
         }
 
         // --- LS クリック: 確定/改行（日本語変換中は確定、中国語候補あれば候補確定）---
@@ -695,6 +757,13 @@ class GamepadInputManager {
                         pinyinSelectedIndex = 0
                         pinyinWindowStart = 0
                     }
+                }
+                currentMode == GamepadInputMode.DEVANAGARI -> {
+                    // LS click = 非 varga サブレイヤーをトグル。
+                    // 注意: composer は commit しない。cluster 途中で子音クラスを
+                    // 切替える必要がある（例: स्त्य = sibilant → varga → semivowel）
+                    // ので、halant 自動挿入を効かせるには state 保持が必須。
+                    devaNonVargaActive = !devaNonVargaActive
                 }
                 else -> {
                     // 改行の前に韓国語の合成状態を確定 + Smart Jamo 解除
@@ -1601,6 +1670,138 @@ class GamepadInputManager {
                 }
             }
         }
+    }
+
+    // MARK: - Devanagari 入力
+
+    /// Devanagari モードの入力処理。
+    ///
+    /// レイヤー設計（varnamala 時計回り）:
+    /// - LS 方向 → varga 選択 (↑क →च ↓ट ←त 中立प)
+    /// - D-pad 方向 → varga 内 stop (↑1st →2nd ↓3rd ←4th)
+    /// - LB 単独 → 現 varga の鼻音
+    /// - Face button → 母音（Y=a, B=i, A=u, X=e）
+    ///   合成中なら matra、そうでなければ independent vowel（composer が自動判定）
+    /// - RT → halant（明示的 schwa 終端）
+    /// - RB → nukta（直前子音に付加）
+    /// - RS ↑ → anusvara ↔ chandrabindu トグル
+    /// - RS → → 長母音 post-shift（直前 matra / 独立母音を長形に）
+    /// - L3 (LS クリック) → 非 varga サブレイヤーをトグル
+    ///   ON の間、D-pad は LT OFF: semivowel (य र ल व) / LT ON: sibilant (श ष स ह)
+    ///
+    /// 各 edge で composer 経由で onDirectInsert を呼ぶ。chord 処理は composer 側の
+    /// 「子音→matra は schwa 置換」「子音→子音は virama 自動挿入」で吸収される。
+    private fun handleDevanagariInput(
+        gp: GamepadSnapshot,
+        ltNow: Boolean, rtNow: Boolean,
+        rStickUp: Boolean, rStickDown: Boolean, rStickLeft: Boolean, rStickRight: Boolean,
+        lStickUp: Boolean, lStickDown: Boolean, lStickLeft: Boolean, lStickRight: Boolean,
+        now: Long,
+    ) {
+        // --- LS 方向 → varga ---
+        val lsDir = when {
+            lStickUp -> DevaLsDirection.UP
+            lStickRight -> DevaLsDirection.RIGHT
+            lStickDown -> DevaLsDirection.DOWN
+            lStickLeft -> DevaLsDirection.LEFT
+            else -> DevaLsDirection.NEUTRAL
+        }
+        devaLsDir = lsDir
+        val varga = resolveDevaVarga(lsDir)
+
+        // --- D-pad 方向（現在）---
+        val dpadDir = when {
+            gp.dpadUp -> DevaDpadDir.UP
+            gp.dpadRight -> DevaDpadDir.RIGHT
+            gp.dpadDown -> DevaDpadDir.DOWN
+            gp.dpadLeft -> DevaDpadDir.LEFT
+            else -> DevaDpadDir.NONE
+        }
+        // 「前回と違う非 NONE 方向」= 新規押下エッジ（方向 swap も含む）
+        val dpadEdge = dpadDir != DevaDpadDir.NONE && dpadDir != prevDevaDpadDir
+
+        // --- LB edge（鼻音）---
+        val lbEdge = gp.lb && !prevLB
+
+        // --- Face button（Devanagari 独自配置: RB は nukta に譲るので除外）---
+        val face: VowelButton? = when {
+            gp.buttonY -> VowelButton.U   // Y (上) = a
+            gp.buttonB -> VowelButton.E   // B (右) = i
+            gp.buttonA -> VowelButton.O   // A (下) = u
+            gp.buttonX -> VowelButton.I   // X (左) = e
+            else -> null
+        }
+        val faceEdge = face != null && face != prevDevaFace
+
+        // === 子音 emission ===
+        if (dpadEdge) {
+            val consonant: Char? = if (devaNonVargaActive) {
+                val nvIdx = resolveDevaNonVargaIndex(dpadDir)
+                if (nvIdx != null) {
+                    if (ltNow) DEVA_NONVARGA_SIBILANT[nvIdx] else DEVA_NONVARGA_SEMIVOWEL[nvIdx]
+                } else null
+            } else {
+                val stopIdx = resolveDevaStopIndex(dpadDir)
+                if (stopIdx != null) DEVA_VARGA_CONSONANTS[varga.index][stopIdx] else null
+            }
+            if (consonant != null) {
+                val out = devanagariComposer.inputConsonant(consonant)
+                onDirectInsert?.invoke(out.text, out.replaceCount)
+            }
+        }
+
+        // === 鼻音（LB 単独）emission ===
+        // 非 varga サブレイヤー中は LB を無視（鼻音は varga モードでのみ）
+        if (lbEdge && !devaNonVargaActive) {
+            val nasal = DEVA_VARGA_CONSONANTS[varga.index][4]
+            val out = devanagariComposer.inputConsonant(nasal)
+            onDirectInsert?.invoke(out.text, out.replaceCount)
+        }
+
+        // === 母音 emission ===
+        // 合成中（子音直後）なら matra、そうでなければ independent vowel。
+        // composer.inputMatra() が null を返したら independent を試す。
+        if (faceEdge && face != null) {
+            val matra = DEVA_FACE_VOWEL_MATRA[face]
+            val indep = DEVA_FACE_VOWEL_INDEPENDENT[face]
+            if (matra != null && indep != null) {
+                val matraOut = devanagariComposer.inputMatra(matra)
+                if (matraOut != null) {
+                    onDirectInsert?.invoke(matraOut.text, matraOut.replaceCount)
+                } else {
+                    val out = devanagariComposer.inputIndependentVowel(indep)
+                    onDirectInsert?.invoke(out.text, out.replaceCount)
+                }
+            }
+        }
+
+        // === RT edge: halant（明示的 schwa 終端）===
+        if (rtNow && !prevRT) {
+            val out = devanagariComposer.inputHalant()
+            if (out != null) onDirectInsert?.invoke(out.text, out.replaceCount)
+        }
+
+        // === RB edge: nukta（直前子音に付加）===
+        if (gp.rb && !prevRB) {
+            val out = devanagariComposer.inputNukta()
+            if (out != null) onDirectInsert?.invoke(out.text, out.replaceCount)
+        }
+
+        // === RS ↑: anusvara ↔ chandrabindu トグル ===
+        if (rStickUp && !prevRStickUp) {
+            val out = devanagariComposer.toggleAnusvara()
+            if (out != null) onDirectInsert?.invoke(out.text, out.replaceCount)
+        }
+
+        // === RS →: 長母音 post-shift（直前 matra / 独立母音を長形に）===
+        if (rStickRight && !prevRStickRight) {
+            val out = devanagariComposer.applyLongShift()
+            if (out != null) onDirectInsert?.invoke(out.text, out.replaceCount)
+        }
+
+        // --- 次フレーム用 state 保存 ---
+        prevDevaDpadDir = dpadDir
+        prevDevaFace = face
     }
 
     // MARK: - 中国語（簡体字）入力

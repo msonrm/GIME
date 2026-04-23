@@ -11,7 +11,8 @@ enum class GamepadInputMode {
     ENGLISH,
     KOREAN,
     CHINESE_SIMPLIFIED,
-    CHINESE_TRADITIONAL;
+    CHINESE_TRADITIONAL,
+    DEVANAGARI;
 
     val label: String
         get() = when (this) {
@@ -20,6 +21,7 @@ enum class GamepadInputMode {
             KOREAN -> "한국어"
             CHINESE_SIMPLIFIED -> "简体"
             CHINESE_TRADITIONAL -> "繁體"
+            DEVANAGARI -> "देव"
         }
 
     /// サイクル順（有効なモードのみ）
@@ -391,3 +393,104 @@ fun koreanCompatJamoOnset(onsetIndex: Int): Char =
 /// 중성 (nucleus) index (0-20) → 互換 Jamo 文字
 /// U+314F (ㅏ) から U+3163 (ㅣ) まで 21 文字が連続しているので単純加算。
 fun koreanCompatJamoNucleus(nucleusIndex: Int): Char = (0x314F + nucleusIndex).toChar()
+
+// MARK: - Devanagari テーブル（varnamala 時計回り方式）
+
+/// 左スティック方向 → varga index (0-4)
+/// LS の 5 位置を **varnamala 順に時計回り** に載せる:
+///   ↑ = क (1st)、→ = च (2nd)、↓ = ट (3rd)、← = त (4th)、中立 = प (5th)
+enum class DevaVarga(val index: Int) {
+    K(0),   // कवर्ग (軟口蓋) — LS ↑
+    C(1),   // चवर्ग (口蓋)  — LS →
+    T_RETRO(2),  // टवर्ग (そり舌) — LS ↓
+    T_DENTAL(3), // तवर्ग (歯)    — LS ←
+    P(4),   // पवर्ग (唇)    — LS 中立
+}
+
+/// varga インデックス → 子音配列 [stop1, stop2, stop3, stop4, nasal]
+/// varnamala 順（無気無声 / 有気無声 / 無気有声 / 有気有声 / 鼻音）。
+/// D-pad 4 方向の配置はこの並びを時計回り（↑→↓←）に載せる:
+///   ↑ = stop1, → = stop2, ↓ = stop3, ← = stop4, LB = nasal
+val DEVA_VARGA_CONSONANTS: Array<Array<Char>> = arrayOf(
+    arrayOf('क', 'ख', 'ग', 'घ', 'ङ'),  // कवर्ग
+    arrayOf('च', 'छ', 'ज', 'झ', 'ञ'),  // चवर्ग
+    arrayOf('ट', 'ठ', 'ड', 'ढ', 'ण'),  // टवर्ग
+    arrayOf('त', 'थ', 'द', 'ध', 'न'),  // तवर्ग
+    arrayOf('प', 'फ', 'ब', 'भ', 'म'),  // पवर्ग
+)
+
+/// 非 varga 子音サブレイヤー（L3 = LS クリックで突入）
+/// LT 離し: semivowel 層（य र ल व）を varnamala 順に時計回り
+/// LT 押し: sibilant + h 層（श ष स ह）を同順で配置
+/// いずれも D-pad ↑→↓← に割り当て
+val DEVA_NONVARGA_SEMIVOWEL: Array<Char> = arrayOf('य', 'र', 'ल', 'व')
+val DEVA_NONVARGA_SIBILANT: Array<Char> = arrayOf('श', 'ष', 'स', 'ह')
+
+/// face button → 母音インデックス（varnamala 時計回り: ↑a →i ↓u ←e）
+/// 現在の VowelButton は (RB=A=あ, X=I=い, Y=U=う, B=E=え, A=O=お) の順だが、
+/// Devanagari は独自配置のため RB は使わず、face button 4 個のみを用いる:
+///   Y (上) = a、B (右) = i、A (下) = u、X (左) = e
+/// 追加の母音 (o, ṛ, 長音) は RS に配置（GamepadInputManager 側で処理）。
+val DEVA_FACE_VOWEL_INDEPENDENT: Map<VowelButton, Char> = mapOf(
+    VowelButton.U to 'अ',  // Y (上) = a
+    VowelButton.E to 'इ',  // B (右) = i
+    VowelButton.O to 'उ',  // A (下) = u
+    VowelButton.I to 'ए',  // X (左) = e
+)
+
+val DEVA_FACE_VOWEL_MATRA: Map<VowelButton, Char> = mapOf(
+    VowelButton.U to 'ा',  // a → ा (実際は schwa 置換だが composer 側で扱う)
+    VowelButton.E to 'ि',  // i → ि
+    VowelButton.O to 'ु',  // u → ु
+    VowelButton.I to 'े',  // e → े
+)
+
+/// Devanagari 用 LS 方向解決
+enum class DevaLsDirection { NEUTRAL, UP, RIGHT, DOWN, LEFT }
+
+fun resolveDevaVarga(dir: DevaLsDirection): DevaVarga = when (dir) {
+    DevaLsDirection.UP -> DevaVarga.K
+    DevaLsDirection.RIGHT -> DevaVarga.C
+    DevaLsDirection.DOWN -> DevaVarga.T_RETRO
+    DevaLsDirection.LEFT -> DevaVarga.T_DENTAL
+    DevaLsDirection.NEUTRAL -> DevaVarga.P
+}
+
+/// D-pad 方向 → varga 内 stop index (0-3)
+/// ↑ = 0 (無気無声), → = 1 (有気無声), ↓ = 2 (無気有声), ← = 3 (有気有声)
+enum class DevaDpadDir { UP, RIGHT, DOWN, LEFT, NONE }
+
+fun resolveDevaStopIndex(dir: DevaDpadDir): Int? = when (dir) {
+    DevaDpadDir.UP -> 0
+    DevaDpadDir.RIGHT -> 1
+    DevaDpadDir.DOWN -> 2
+    DevaDpadDir.LEFT -> 3
+    DevaDpadDir.NONE -> null
+}
+
+/// D-pad 方向 → 非 varga サブレイヤー内インデックス (0-3)
+fun resolveDevaNonVargaIndex(dir: DevaDpadDir): Int? = when (dir) {
+    DevaDpadDir.UP -> 0
+    DevaDpadDir.RIGHT -> 1
+    DevaDpadDir.DOWN -> 2
+    DevaDpadDir.LEFT -> 3
+    DevaDpadDir.NONE -> null
+}
+
+/// D-pad セル (ClusterCell) 表示用: varga 1 つの 5 文字を
+/// (center=nasal, left=stop4, up=stop1, right=stop2, down=stop3) 順で返す。
+/// center = LB = 鼻音、cardinal = 時計回り stop。
+fun devaVargaDisplayChars(varga: DevaVarga): Array<String> {
+    val row = DEVA_VARGA_CONSONANTS[varga.index]
+    // [center, left, up, right, down] = [nasal, stop4, stop1, stop2, stop3]
+    return arrayOf(row[4].toString(), row[3].toString(), row[0].toString(),
+                   row[1].toString(), row[2].toString())
+}
+
+/// 非 varga サブレイヤー表示用: LT OFF (semivowel) / LT ON (sibilant)
+fun devaNonVargaDisplayChars(ltPressed: Boolean): Array<String> {
+    val row = if (ltPressed) DEVA_NONVARGA_SIBILANT else DEVA_NONVARGA_SEMIVOWEL
+    // [center(unused), left=row[3], up=row[0], right=row[1], down=row[2]]
+    return arrayOf("", row[3].toString(), row[0].toString(),
+                   row[1].toString(), row[2].toString())
+}

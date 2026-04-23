@@ -548,17 +548,29 @@ fun DpadDisplay(inputManager: GamepadInputManager) {
                 )
             }
 
-            // 中央: D-pad クラスタ + (韓国語のみ) フェイスボタンを横並び
-            if (mode == com.gime.android.engine.GamepadInputMode.KOREAN) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    DpadCluster(mode = mode, isLB = isLB, dir = dir, englishShift = englishShift)
-                    KoreanFaceButtons(inputManager, vowels = activeRowFaceChars)
+            // 中央: D-pad クラスタ + (韓国語・Devanagari のみ) フェイスボタンを横並び
+            when (mode) {
+                com.gime.android.engine.GamepadInputMode.KOREAN -> {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        DpadCluster(mode = mode, isLB = isLB, dir = dir, englishShift = englishShift)
+                        KoreanFaceButtons(inputManager, vowels = activeRowFaceChars)
+                    }
                 }
-            } else {
-                DpadCluster(mode = mode, isLB = isLB, dir = dir, englishShift = englishShift)
+                com.gime.android.engine.GamepadInputMode.DEVANAGARI -> {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        DevaDpadCluster(inputManager = inputManager, dir = dir)
+                        DevaFaceButtons(inputManager = inputManager)
+                    }
+                }
+                else -> {
+                    DpadCluster(mode = mode, isLB = isLB, dir = dir, englishShift = englishShift)
+                }
             }
 
             // 右端: RT / RB
@@ -571,7 +583,7 @@ fun DpadDisplay(inputManager: GamepadInputManager) {
                     pressed = inputManager.btnRT,
                 )
                 ShoulderChip(
-                    label = activeRowFaceChars.getOrElse(0) { "RB" },
+                    label = rbLabel(mode, activeRowFaceChars),
                     pressed = inputManager.btnRB,
                 )
             }
@@ -690,6 +702,10 @@ private fun getCellChars(
             }
             arrayOf(single, "", "", "", "")
         }
+        com.gime.android.engine.GamepadInputMode.DEVANAGARI ->
+            // DevaDpadCluster が直接描画するので、getCellChars は呼ばれない想定。
+            // fallback として空配列。
+            emptyArray()
     }
 }
 
@@ -706,7 +722,71 @@ private fun getFaceChars(
         com.gime.android.engine.GamepadInputMode.KOREAN ->
             if (rtPressed) com.gime.android.engine.KOREAN_VOWEL_CHARS_SHIFTED
             else com.gime.android.engine.KOREAN_VOWEL_CHARS_BASE
+        com.gime.android.engine.GamepadInputMode.DEVANAGARI ->
+            // Devanagari は DevaFaceButtons で独自描画。fallback（RB ラベル用）に
+            // [center, X=e, Y=a, B=i, A=u] を返す。center は nukta（rbLabel が上書き）。
+            arrayOf("", "ए", "अ", "इ", "उ")
         else -> getCellChars(mode, activeRow, englishShift)
+    }
+}
+
+/// Devanagari 用 D-pad クラスタ。現在の varga (LS 方向) に応じて
+/// 5 セル (中央=鼻音, 四方=stop) を表示。非 varga モード中は semivowel / sibilant を表示。
+@Composable
+private fun DevaDpadCluster(
+    inputManager: GamepadInputManager,
+    dir: Int,
+) {
+    val ltPressed = inputManager.btnLT
+    val chars: Array<String> = if (inputManager.devaNonVargaActive) {
+        com.gime.android.engine.devaNonVargaDisplayChars(ltPressed)
+    } else {
+        val varga = com.gime.android.engine.resolveDevaVarga(inputManager.devaLsDir)
+        com.gime.android.engine.devaVargaDisplayChars(varga)
+    }
+    val cellSize = 34.dp
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        DevaClusterCell(chars.getOrElse(2) { "" }, isActive = dir == 2, size = cellSize)
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            DevaClusterCell(chars.getOrElse(1) { "" }, isActive = dir == 1, size = cellSize)
+            DevaClusterCell(chars.getOrElse(0) { "" }, isActive = dir == 0, size = cellSize)
+            DevaClusterCell(chars.getOrElse(3) { "" }, isActive = dir == 3, size = cellSize)
+        }
+        DevaClusterCell(chars.getOrElse(4) { "" }, isActive = dir == 4, size = cellSize)
+    }
+}
+
+@Composable
+private fun DevaClusterCell(
+    char: String,
+    isActive: Boolean,
+    size: androidx.compose.ui.unit.Dp = 34.dp,
+) {
+    val bg = if (isActive) MaterialTheme.colorScheme.primaryContainer
+             else MaterialTheme.colorScheme.surfaceContainerHigh
+    val fg = if (isActive) MaterialTheme.colorScheme.onPrimaryContainer
+             else MaterialTheme.colorScheme.onSurfaceVariant
+    Box(
+        modifier = Modifier
+            .size(size)
+            .background(bg, RoundedCornerShape(8.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (char.isNotEmpty()) Text(char, color = fg, fontSize = 16.sp)
+    }
+}
+
+/// Devanagari 用フェイスボタン（varnamala 時計回り: ↑a →i ↓u ←e）
+@Composable
+private fun DevaFaceButtons(inputManager: GamepadInputManager) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        FaceButton("अ", inputManager.btnY)
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            FaceButton("ए", inputManager.btnX)
+            FaceButton("", pressed = false, isCenter = true)
+            FaceButton("इ", inputManager.btnB)
+        }
+        FaceButton("उ", inputManager.btnA)
     }
 }
 
@@ -749,6 +829,9 @@ private fun ltLabel(
     }
     com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED,
     com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL -> ""
+    com.gime.android.engine.GamepadInputMode.DEVANAGARI ->
+        // 非 varga 時のみ意味を持つ（shift で semivowel ↔ sibilant）
+        if (m.devaNonVargaActive) "शष" else "—"
 }
 
 /// LB ラベル: 押下中は ●、そうでなければ別レイヤーの手がかりを表示
@@ -763,6 +846,7 @@ private fun lbLabel(
         com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED -> "pqrs〜"
         com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL -> "ㄗㄘㄙ〜"
         com.gime.android.engine.GamepadInputMode.KOREAN -> "ㅁ〜"
+        com.gime.android.engine.GamepadInputMode.DEVANAGARI -> "鼻音"
     }
 }
 
@@ -773,6 +857,16 @@ private fun rtLabel(mode: com.gime.android.engine.GamepadInputMode): String = wh
     com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED,
     com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL -> "0"
     com.gime.android.engine.GamepadInputMode.KOREAN -> "ㅑㅕ"
+    com.gime.android.engine.GamepadInputMode.DEVANAGARI -> "्"  // halant (virama)
+}
+
+/// RB ラベル: Devanagari は nukta 固定、他モードは activeRow の RB 文字を流用
+private fun rbLabel(
+    mode: com.gime.android.engine.GamepadInputMode,
+    activeRowFaceChars: Array<String>,
+): String = when (mode) {
+    com.gime.android.engine.GamepadInputMode.DEVANAGARI -> "़"  // nukta
+    else -> activeRowFaceChars.getOrElse(0) { "RB" }
 }
 
 /// 右スティック方向のヒント（iOS 版 GamepadVisualizerView.swift と同じ表記）
@@ -802,6 +896,9 @@ private fun RightStickHint(
         com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED,
         com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL -> {
             upLabel = ""; downLabel = "，。␣"; rightLabel = "、"
+        }
+        com.gime.android.engine.GamepadInputMode.DEVANAGARI -> {
+            upLabel = "ंँ"; downLabel = "␣।"; rightLabel = "長"
         }
     }
     val leftLabel = "⌫"
