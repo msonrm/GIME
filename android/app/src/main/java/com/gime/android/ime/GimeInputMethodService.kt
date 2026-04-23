@@ -250,6 +250,41 @@ class GimeInputMethodService :
         return v
     }
 
+    /// Compose 側のレイアウト変化を受けてインセットを再計算するためのフック。
+    /// InputMethodService 自身が公開している insets 再計算 API は無いので、
+    /// view に requestLayout をかけてフレームワーク側の layout → onComputeInsets
+    /// の流れに載せる。onGloballyPositioned は layout 中に呼ばれるため、
+    /// requestLayout は次フレームに仮予約される（安全）。
+    fun onLayoutUpdated() {
+        // no-op: onComputeInsets は view の layout 完了後にフレームワークが呼ぶ。
+        // 現状値は inputView のフィールドから直接読み取るので、明示的な
+        // invalidation は不要。将来ちらつきが出たら requestLayout を追加する。
+    }
+
+    /// IME の「見かけの占有領域」を compact バーから下だけに絞り、
+    /// 候補オーバーレイ（compact バーの上）はアプリのレイアウトに影響させない。
+    /// これで compact モードでは常に compact バー分（約 36dp）しかアプリの
+    /// 入力欄を押し上げず、候補が出ても引っ込んでも縦位置は変わらない。
+    override fun onComputeInsets(outInsets: InputMethodService.Insets?) {
+        if (outInsets == null) {
+            super.onComputeInsets(outInsets)
+            return
+        }
+        val view = inputView
+        if (view == null || view.width <= 0 || view.height <= 0) {
+            super.onComputeInsets(outInsets)
+            return
+        }
+
+        val barTop = view.compactBarTopInViewPx.coerceIn(0, view.height)
+
+        outInsets.contentTopInsets = barTop
+        outInsets.visibleTopInsets = barTop
+        // TOUCHABLE_INSETS_CONTENT: contentTopInsets より下の領域だけが touchable。
+        // オーバーレイ領域（candidates）は透過で、タッチはアプリ側へ抜ける。
+        outInsets.touchableInsets = InputMethodService.Insets.TOUCHABLE_INSETS_CONTENT
+    }
+
     // MARK: - ハードウェアキー受信
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {

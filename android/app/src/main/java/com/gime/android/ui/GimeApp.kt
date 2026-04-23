@@ -302,15 +302,63 @@ fun GamepadVisualizer(
             )
             Spacer(modifier = Modifier.height(6.dp))
         }
+
+        // 候補 / composing 表示は別コンポーザブルに切り出し、IME でも再利用する。
+        // ヒント行は compact モードでは出さない。
+        CandidateOverlay(
+            inputManager = inputManager,
+            showHints = !compact,
+        )
+
+        // 未接続時のみ注意表示（接続中は何も表示しない）
+        if (!inputManager.isConnected) {
+            Text(
+                text = "コントローラーを接続してください",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+            )
+        }
+
+        // 日本語の変換中のみビジュアライザを隠す（候補に集中できるように）。
+        // 中国語は即時候補表示でも邪魔にならないよう常に表示する。
+        // compact モードでは D-pad を一切表示しない。
+        if (!compact && !inputManager.isConverting) {
+            DpadDisplay(inputManager = inputManager)
+        }
+    }
+}
+
+/// 候補 / composing プレビュー専用のコンポーザブル。
+///
+/// GamepadVisualizer の候補表示部分を切り出して、IME compact モードの
+/// 透過オーバーレイレイヤーからも再利用できるようにしたもの。外枠は持たず、
+/// 個々の候補カードだけが surfaceContainerHigh 背景を持つので、親側の
+/// 背景が透明でも自然に見える。
+///
+/// - [showHints] false で「LS↓: 変換 / ...」ヒント行を非表示にする（compact 用）。
+/// - 何も表示すべき状態が無ければ縦幅 0 で畳む（オーバーレイが消える）。
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun CandidateOverlay(
+    inputManager: GamepadInputManager,
+    showHints: Boolean = true,
+) {
+    val hasPinyin = inputManager.pinyinCandidates.isNotEmpty()
+    val hasJapanese = inputManager.hiraganaBuffer.isNotEmpty() || inputManager.isConverting
+    if (!hasPinyin && !hasJapanese) return
+
+    Column(modifier = Modifier.fillMaxWidth()) {
         // 中国語候補表示（該当時のみ）— 日本語モードと同じレイアウト（FlowRow + ページ表示）
-        if (inputManager.pinyinCandidates.isNotEmpty()) {
+        if (hasPinyin) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(8.dp))
                     .padding(8.dp),
             ) {
-                // バッファ表示
                 if (inputManager.pinyinBuffer.isNotEmpty()) {
                     val displayBuffer = if (inputManager.zhuyinDisplayBuffer.isNotEmpty()) {
                         inputManager.zhuyinDisplayBuffer
@@ -331,7 +379,6 @@ fun GamepadVisualizer(
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                 }
-                // 候補を折り返し表示
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -354,7 +401,6 @@ fun GamepadVisualizer(
                         )
                     }
                 }
-                // 位置 / 全体
                 Text(
                     text = "${inputManager.pinyinSelectedIndex + 1} / ${inputManager.pinyinCandidates.size}",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -365,15 +411,13 @@ fun GamepadVisualizer(
             Spacer(modifier = Modifier.height(8.dp))
         }
 
-        // 日本語 composing / 変換候補表示
-        if (inputManager.hiraganaBuffer.isNotEmpty() || inputManager.isConverting) {
+        if (hasJapanese) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(8.dp))
                     .padding(8.dp),
             ) {
-                // バッファ（かな）表示 — 変換中なら文節区切りで
                 if (inputManager.isConverting && inputManager.bunsetsuReadings.isNotEmpty()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -411,8 +455,6 @@ fun GamepadVisualizer(
                         )
                     }
                 }
-                // 候補リスト（複数あれば、スライディングウィンドウで 9 件まで表示。
-                // 長い候補は FlowRow で複数行に折り返す）
                 if (inputManager.japaneseCandidates.size > 1) {
                     Spacer(modifier = Modifier.height(4.dp))
                     FlowRow(
@@ -437,7 +479,6 @@ fun GamepadVisualizer(
                             )
                         }
                     }
-                    // 全候補数とウィンドウ位置の表示
                     Text(
                         text = "${inputManager.selectedJapaneseCandidateIndex + 1} / ${inputManager.japaneseCandidates.size}",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -445,8 +486,7 @@ fun GamepadVisualizer(
                         modifier = Modifier.padding(top = 2.dp),
                     )
                 }
-                // ヒント（compact 時は省略）
-                if (!compact && !inputManager.isConverting) {
+                if (showHints && !inputManager.isConverting) {
                     Text(
                         text = "LS↓: 変換 / LSクリック: 確定 / RSクリック: 取消",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -456,25 +496,6 @@ fun GamepadVisualizer(
                 }
             }
             Spacer(modifier = Modifier.height(8.dp))
-        }
-
-        // 未接続時のみ注意表示（接続中は何も表示しない）
-        if (!inputManager.isConnected) {
-            Text(
-                text = "コントローラーを接続してください",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.sp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-            )
-        }
-
-        // 日本語の変換中のみビジュアライザを隠す（候補に集中できるように）。
-        // 中国語は即時候補表示でも邪魔にならないよう常に表示する。
-        // compact モードでは D-pad を一切表示しない。
-        if (!compact && !inputManager.isConverting) {
-            DpadDisplay(inputManager = inputManager)
         }
     }
 }
