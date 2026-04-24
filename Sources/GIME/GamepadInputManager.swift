@@ -131,7 +131,9 @@ final class GamepadInputManager {
     // LS クリックの debounce。DualSense 等の機械式スティックボタンは
     // Bluetooth 経由でチャタリングが起きやすく、単押しが 2 回の落ちエッジとして
     // 観測されることがある。この時間内の 2 回目以降の立ち下がりは無視する。
-    private let lsDebounceInterval: TimeInterval = 0.120
+    // 当初 0.120 で導入したが実機で 2 度押し化が頻発するため 0.250 に拡張。
+    // 意図的な double-tap には LS を使っていないので副作用なし。
+    private let lsDebounceInterval: TimeInterval = 0.250
 
     private var eagerChar: String?
     private var eagerCharLen: Int = 0

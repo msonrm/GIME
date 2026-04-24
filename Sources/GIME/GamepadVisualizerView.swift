@@ -153,7 +153,7 @@ struct GamepadVisualizerView: View {
             return "ㅇ"                                          // 通常: 単押しで ㅇ받침
         case .chineseSimplified, .chineseTraditional: return ""
         case .japanese: return "拗音"
-        case .devanagari: return "拡張"  // LT = 拡張母音/sibilant/nukta 修飾子
+        case .devanagari: return ""  // LT 単押しは emit 無し（拡張母音/sibilant/nukta の修飾子）
         }
     }
 
@@ -170,7 +170,7 @@ struct GamepadVisualizerView: View {
         case .english, .chineseSimplified, .chineseTraditional: return "0"
         case .korean: return "ㅑㅕ"
         case .japanese: return "ん"
-        case .devanagari: return isLTPressed ? "ः" : "्"  // LT+RT=visarga, RT 単=halant
+        case .devanagari: return isLTPressed ? "ः" : "्⇆"  // LT+RT=visarga、RT 単=halant、RT+LS=cursor
         }
     }
 
@@ -235,7 +235,7 @@ struct GamepadVisualizerView: View {
             // 자모 모드: → = 直前 jamo の連打（연타）
             return gamepadInput.isKoreanJamoMode ? "연타" : "ㅘㅝ"
         case .chineseSimplified, .chineseTraditional: return "、"
-        case .devanagari: return "長"
+        case .devanagari: return "ा"  // 短母音 → 長母音 post-shift（schwa 状態では ा を追加）
         }
     }
 
