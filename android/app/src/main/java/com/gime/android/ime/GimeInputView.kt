@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -110,7 +111,16 @@ class GimeInputView(
                 var compact by remember { mutableStateOf(imeSettings.compactMode) }
                 val oscEnabled = remember { VrChatOscSettings(context).enabled }
 
-                Column(modifier = Modifier.fillMaxWidth()) {
+                // 外側の Column に navigationBarsPadding を入れて、IME 下端が
+                // gesture pill / ナビゲーションバーに被らないようにする。
+                // 候補オーバーレイと compact バーは Column 先頭側から積まれるので、
+                // positionInRoot で読む compact バー top y は影響を受けない（下端側に
+                // insets 分の空白が追加されるだけ）。
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding(),
+                ) {
                     // 1. 候補 / composing オーバーレイ（透過レイヤー）
                     //    描画高さを overlayHeightPx に書き戻し、Service に伝える。
                     Box(
