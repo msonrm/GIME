@@ -22,6 +22,6 @@ class ImeUiSettings(context: Context) {
     companion object {
         private const val PREFS_NAME = "ime_ui"
         private const val KEY_COMPACT = "compactMode"
-        const val DEFAULT_COMPACT = true
+        const val DEFAULT_COMPACT = false
     }
 }
