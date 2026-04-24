@@ -543,7 +543,7 @@ fun DpadDisplay(inputManager: GamepadInputManager) {
                     pressed = inputManager.btnLT,
                 )
                 ShoulderChip(
-                    label = lbLabel(mode, isLB),
+                    label = lbLabel(mode, isLB, inputManager),
                     pressed = inputManager.btnLB,
                 )
             }
@@ -579,7 +579,7 @@ fun DpadDisplay(inputManager: GamepadInputManager) {
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 ShoulderChip(
-                    label = rtLabel(mode),
+                    label = rtLabel(mode, inputManager),
                     pressed = inputManager.btnRT,
                 )
                 ShoulderChip(
@@ -839,9 +839,11 @@ private fun ltLabel(
 }
 
 /// LB ラベル: 押下中は ●、そうでなければ別レイヤーの手がかりを表示
+/// Devanagari は現 varga の鼻音文字を動的表示（LS latched 状態に追随）
 private fun lbLabel(
     mode: com.gime.android.engine.GamepadInputMode,
     isLB: Boolean,
+    m: GamepadInputManager,
 ): String {
     if (isLB) return "●"
     return when (mode) {
@@ -850,18 +852,25 @@ private fun lbLabel(
         com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED -> "pqrs〜"
         com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL -> "ㄗㄘㄙ〜"
         com.gime.android.engine.GamepadInputMode.KOREAN -> "ㅁ〜"
-        com.gime.android.engine.GamepadInputMode.DEVANAGARI -> "鼻音"
+        com.gime.android.engine.GamepadInputMode.DEVANAGARI -> {
+            val varga = com.gime.android.engine.resolveDevaVarga(m.devaLsDir)
+            com.gime.android.engine.DEVA_VARGA_CONSONANTS[varga.index][4].toString()
+        }
     }
 }
 
-/// RT ラベル: モード固定
-private fun rtLabel(mode: com.gime.android.engine.GamepadInputMode): String = when (mode) {
+/// RT ラベル: Devanagari は LT 併用時に visarga ः へ動的切替
+private fun rtLabel(
+    mode: com.gime.android.engine.GamepadInputMode,
+    m: GamepadInputManager,
+): String = when (mode) {
     com.gime.android.engine.GamepadInputMode.JAPANESE -> "ん"
     com.gime.android.engine.GamepadInputMode.ENGLISH,
     com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED,
     com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL -> "0"
     com.gime.android.engine.GamepadInputMode.KOREAN -> "ㅑㅕ"
-    com.gime.android.engine.GamepadInputMode.DEVANAGARI -> "्"  // halant (virama)
+    com.gime.android.engine.GamepadInputMode.DEVANAGARI ->
+        if (m.btnLT) "ः" else "्⇆"  // halant / LS+RT でカーソル / LT併用で visarga
 }
 
 /// RB ラベル: Devanagari は LT 無しで ओ / LT 併用で nukta ़。他モードは activeRow 流用

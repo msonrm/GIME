@@ -295,6 +295,8 @@ class GamepadInputManager {
     private var prevDevaFace: VowelButton? = null
     /// LS の前回物理方向（edge 検出用）
     private var prevDevaRawLsDir: DevaLsDirection = DevaLsDirection.NEUTRAL
+    /// RT 押下中にカーソル移動を発火したか（release 時に halant を抑止するフラグ）
+    private var devaRtUsedForCursor: Boolean = false
     /// LS 押し込み (lsClick) の前回状態は既存の prevLS を使用
 
     val visiblePinyinCandidates: List<PinyinCandidate>
@@ -1708,10 +1710,17 @@ class GamepadInputManager {
         lStickUp: Boolean, lStickDown: Boolean, lStickLeft: Boolean, lStickRight: Boolean,
         now: Long,
     ) {
-        // --- LS 方向 → varga (toggle-latched) ---
-        // 物理 LS 方向を読み、latched state を更新する。
-        // edge = (prev == NEUTRAL and curr != NEUTRAL) OR (prev != curr, 両方とも非 NEUTRAL)
-        // edge 時: curr == latched なら toggle off、そうでなければ latch = curr
+        // --- RT press edge: カーソル使用フラグを先にリセット ---
+        // LS handling より前に行うことで、同一フレームで RT press + LS edge が
+        // 起きた時でも正しく cursor move → rtUsedForCursor=true の順で処理される。
+        if (rtNow && !prevRT) {
+            devaRtUsedForCursor = false
+        }
+
+        // --- LS 方向 → varga (toggle-latched) or カーソル移動（RT 押下中）---
+        // 物理 LS 方向を読む。
+        //  - RT 押下中: LS エッジはカーソル移動として解釈（latch 更新しない）
+        //  - RT 非押下: latch 更新（edge 時に同方向なら toggle off、別方向なら latch）
         val rawLsDir = when {
             lStickUp -> DevaLsDirection.UP
             lStickRight -> DevaLsDirection.RIGHT
@@ -1720,7 +1729,20 @@ class GamepadInputManager {
             else -> DevaLsDirection.NEUTRAL
         }
         val lsPushEdge = rawLsDir != DevaLsDirection.NEUTRAL && rawLsDir != prevDevaRawLsDir
-        if (lsPushEdge) {
+        if (rtNow) {
+            // RT 押下中: カーソル移動
+            if (lsPushEdge) {
+                when (rawLsDir) {
+                    DevaLsDirection.LEFT -> onCursorMove?.invoke(-1)
+                    DevaLsDirection.RIGHT -> onCursorMove?.invoke(1)
+                    DevaLsDirection.UP -> onCursorMoveVertical?.invoke(-1)
+                    DevaLsDirection.DOWN -> onCursorMoveVertical?.invoke(1)
+                    DevaLsDirection.NEUTRAL -> {}
+                }
+                devaRtUsedForCursor = true
+            }
+        } else if (lsPushEdge) {
+            // 通常: latch 更新
             devaLsDir = if (devaLsDir == rawLsDir) DevaLsDirection.NEUTRAL else rawLsDir
         }
         val varga = resolveDevaVarga(devaLsDir)
@@ -1800,10 +1822,27 @@ class GamepadInputManager {
             }
         }
 
-        // === RT edge: halant（明示的 schwa 終端）===
-        if (rtNow && !prevRT) {
-            val out = devanagariComposer.inputHalant()
-            if (out != null) onDirectInsert?.invoke(out.text, out.replaceCount)
+        // === LT + RT 同時押し: visarga (ः) ===
+        // 両トリガーが held 状態に遷移したフレームで visarga を emit。
+        // halant 発火を抑止するため devaRtUsedForCursor を true にする。
+        val bothTriggersHeld = ltNow && rtNow
+        val bothTriggersWerePrevHeld = prevLT && prevRT
+        if (bothTriggersHeld && !bothTriggersWerePrevHeld) {
+            val out = devanagariComposer.inputVisarga()
+            if (out != null) {
+                onDirectInsert?.invoke(out.text, out.replaceCount)
+                devaRtUsedForCursor = true
+            }
+        }
+
+        // === RT release edge: カーソル使用していなければ halant を emit ===
+        // （RT press edge のリセットは LS handling より前に済ませてある）
+        if (!rtNow && prevRT) {
+            if (!devaRtUsedForCursor) {
+                val out = devanagariComposer.inputHalant()
+                if (out != null) onDirectInsert?.invoke(out.text, out.replaceCount)
+            }
+            devaRtUsedForCursor = false
         }
 
         // === RB edge: ओ（単押し）/ nukta（LT 同時押し）===
