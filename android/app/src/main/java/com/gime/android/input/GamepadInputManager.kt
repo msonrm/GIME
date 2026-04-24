@@ -46,11 +46,17 @@ class GamepadInputManager {
         private set
 
     // Devanagari モード状態
-    /// 非 varga サブレイヤー中か（L3 = LS クリックでトグル）。
+    /// 非 varga サブレイヤー中か（L3 = LS クリックでトグル、1 子音で auto-off）。
     /// ON の間、D-pad は semivowel (य र ल व) / LT 押下時は sibilant (श ष स ह) を返す。
     var devaNonVargaActive: Boolean by mutableStateOf(false)
         private set
-    /// 現在の LS 方向（ビジュアライザ用）。
+    /// LS の latched 方向（varga 選択）。LS と D-pad は物理的に左親指で同時操作
+    /// できないため、LS 方向はトグルラッチにしてある:
+    ///  - LS を方向 X に倒す (first push) → latch = X
+    ///  - LS を離す（中立）→ latch は保持
+    ///  - 同じ方向 X を再度倒す → toggle off (latch = NEUTRAL)
+    ///  - 別方向 Y に倒す → latch = Y
+    /// これにより、ユーザーは LS で varga を指定してから親指を D-pad に移動できる。
     var devaLsDir: DevaLsDirection by mutableStateOf(DevaLsDirection.NEUTRAL)
         private set
 
@@ -287,6 +293,8 @@ class GamepadInputManager {
     private var prevDevaDpadDir: DevaDpadDir = DevaDpadDir.NONE
     /// 前回のフェイスボタン（母音エッジ検出）
     private var prevDevaFace: VowelButton? = null
+    /// LS の前回物理方向（edge 検出用）
+    private var prevDevaRawLsDir: DevaLsDirection = DevaLsDirection.NEUTRAL
     /// LS 押し込み (lsClick) の前回状態は既存の prevLS を使用
 
     val visiblePinyinCandidates: List<PinyinCandidate>
@@ -487,8 +495,10 @@ class GamepadInputManager {
             // Devanagari もリセット
             devanagariComposer.commit()
             devaNonVargaActive = false
+            devaLsDir = DevaLsDirection.NEUTRAL
             prevDevaDpadDir = DevaDpadDir.NONE
             prevDevaFace = null
+            prevDevaRawLsDir = DevaLsDirection.NEUTRAL
             // rStickDown 多段タップもリセット
             rStickDownTapCount = 0
             rStickDownLastTime = 0
@@ -1698,16 +1708,22 @@ class GamepadInputManager {
         lStickUp: Boolean, lStickDown: Boolean, lStickLeft: Boolean, lStickRight: Boolean,
         now: Long,
     ) {
-        // --- LS 方向 → varga ---
-        val lsDir = when {
+        // --- LS 方向 → varga (toggle-latched) ---
+        // 物理 LS 方向を読み、latched state を更新する。
+        // edge = (prev == NEUTRAL and curr != NEUTRAL) OR (prev != curr, 両方とも非 NEUTRAL)
+        // edge 時: curr == latched なら toggle off、そうでなければ latch = curr
+        val rawLsDir = when {
             lStickUp -> DevaLsDirection.UP
             lStickRight -> DevaLsDirection.RIGHT
             lStickDown -> DevaLsDirection.DOWN
             lStickLeft -> DevaLsDirection.LEFT
             else -> DevaLsDirection.NEUTRAL
         }
-        devaLsDir = lsDir
-        val varga = resolveDevaVarga(lsDir)
+        val lsPushEdge = rawLsDir != DevaLsDirection.NEUTRAL && rawLsDir != prevDevaRawLsDir
+        if (lsPushEdge) {
+            devaLsDir = if (devaLsDir == rawLsDir) DevaLsDirection.NEUTRAL else rawLsDir
+        }
+        val varga = resolveDevaVarga(devaLsDir)
 
         // --- D-pad 方向（現在）---
         val dpadDir = when {
@@ -1822,6 +1838,7 @@ class GamepadInputManager {
         // --- 次フレーム用 state 保存 ---
         prevDevaDpadDir = dpadDir
         prevDevaFace = face
+        prevDevaRawLsDir = rawLsDir
     }
 
     // MARK: - 中国語（簡体字）入力
