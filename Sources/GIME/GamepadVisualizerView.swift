@@ -43,6 +43,10 @@ struct GamepadVisualizerView: View {
 
     private var mode: GamepadInputMode { gamepadInput.currentMode }
 
+    private var isLTPressed: Bool {
+        gamepadInput.pressedButtons.contains("LT")
+    }
+
     private var dpad: DpadLabels {
         switch mode {
         case .japanese:
@@ -53,6 +57,20 @@ struct GamepadVisualizerView: View {
             return gamepadInput.activeLayer == .lb ? zhuyinDpadLabelsLB : zhuyinDpadLabelsBase
         case .korean:
             return gamepadInput.activeLayer == .lb ? koreanDpadLabelsLB : koreanDpadLabelsBase
+        case .devanagari:
+            // 非 varga サブレイヤー中 / 通常（varga 時計回り）で表示を切替。
+            // 非 varga: LT 押下で sibilant (श ष स ह) / 離し時 semivowel (य र ल व)
+            // 通常: LS 方向で varga を選び、D-pad が varga 内 stop を表示
+            let chars: [String]
+            if gamepadInput.devaNonVargaActive {
+                chars = devaNonVargaDisplayChars(ltPressed: isLTPressed)
+            } else {
+                chars = devaVargaDisplayChars(resolveDevaVarga(gamepadInput.devaLsDir))
+            }
+            // [center, left, up, right, down]
+            return DpadLabels(
+                center: chars[0], left: chars[1], up: chars[2], right: chars[3], down: chars[4]
+            )
         }
     }
 
@@ -73,6 +91,11 @@ struct GamepadVisualizerView: View {
         case .korean: return isRTPressed ? koreanVowelCharsShifted : koreanVowelCharsBase
         case .chineseSimplified: return englishTable[gamepadInput.activeRow]
         case .chineseTraditional: return zhuyinTable[gamepadInput.activeRow]
+        case .devanagari:
+            // [RB, X, Y, B, A] = [ओ/़, ए, अ, इ, उ]。LT+A は ऋ (拡張母音)。
+            // RB の表示は rbLabel で個別に上書きするため、ここでは a 位置に अ を置く。
+            let aChar = isLTPressed ? "ऋ" : "उ"  // A (u-slot) は LT で ऋ
+            return ["अ", "ए", "अ", "इ", aChar]
         }
     }
 
@@ -82,16 +105,38 @@ struct GamepadVisualizerView: View {
         case .english, .chineseSimplified: return englishRowNames
         case .chineseTraditional: return zhuyinRowNames
         case .korean: return koreanRowNames
+        case .devanagari:
+            // Devanagari は row ベースではなく LS latch ベース。
+            // プレビュー上の行名として「現在の varga 名」を返す（全要素同じ）。
+            let label: String
+            if gamepadInput.devaNonVargaActive {
+                label = isLTPressed ? "श ष स ह" : "य र ल व"
+            } else {
+                switch gamepadInput.devaLsDir {
+                case .up:      label = "कवर्ग"
+                case .right:   label = "चवर्ग"
+                case .down:    label = "टवर्ग"
+                case .left:    label = "तवर्ग"
+                case .neutral: label = "पवर्ग"
+                }
+            }
+            return Array(repeating: label, count: 10)
         }
     }
 
     private var lbLabel: String {
+        if mode == .devanagari {
+            // 現 LS latch の varga の鼻音を表示（常時発火）
+            let varga = resolveDevaVarga(gamepadInput.devaLsDir)
+            return String(devaVargaConsonants[varga.rawValue][4])
+        }
         if gamepadInput.activeLayer == .lb { return "●" }
         switch mode {
         case .japanese: return "は〜"
         case .english, .chineseSimplified: return "pqrs〜"
         case .chineseTraditional: return "ㄗㄘㄙ〜"
         case .korean: return "ㅁ〜"
+        case .devanagari: return ""
         }
     }
 
@@ -108,11 +153,16 @@ struct GamepadVisualizerView: View {
             return "ㅇ"                                          // 通常: 単押しで ㅇ받침
         case .chineseSimplified, .chineseTraditional: return ""
         case .japanese: return "拗音"
+        case .devanagari: return "拡張"  // LT = 拡張母音/sibilant/nukta 修飾子
         }
     }
 
     private var rbLabel: String {
-        faceChars[0]
+        if mode == .devanagari {
+            // LT 併用で nukta、単独で ओ
+            return isLTPressed ? "़" : "ओ"
+        }
+        return faceChars[0]
     }
 
     private var rtLabel: String {
@@ -120,6 +170,7 @@ struct GamepadVisualizerView: View {
         case .english, .chineseSimplified, .chineseTraditional: return "0"
         case .korean: return "ㅑㅕ"
         case .japanese: return "ん"
+        case .devanagari: return isLTPressed ? "ः" : "्"  // LT+RT=visarga, RT 単=halant
         }
     }
 
@@ -130,6 +181,7 @@ struct GamepadVisualizerView: View {
         case .korean: return .indigo
         case .chineseSimplified: return .red
         case .chineseTraditional: return .blue
+        case .devanagari: return .orange
         }
     }
 
@@ -159,6 +211,7 @@ struct GamepadVisualizerView: View {
             // 자모 모드: ↑ = 直前子音 평→격→경 サイクル
             return gamepadInput.isKoreanJamoMode ? "ㄱㅋㄲ" : "ㅋㅌ"
         case .chineseSimplified, .chineseTraditional: return ""
+        case .devanagari: return "ंँ"
         }
     }
 
@@ -168,6 +221,7 @@ struct GamepadVisualizerView: View {
         case .english: return "␣.,"
         case .korean: return "␣."
         case .chineseSimplified, .chineseTraditional: return "，。␣"
+        case .devanagari: return "␣।"
         }
     }
 
@@ -181,6 +235,7 @@ struct GamepadVisualizerView: View {
             // 자모 모드: → = 直前 jamo の連打（연타）
             return gamepadInput.isKoreanJamoMode ? "연타" : "ㅘㅝ"
         case .chineseSimplified, .chineseTraditional: return "、"
+        case .devanagari: return "長"
         }
     }
 

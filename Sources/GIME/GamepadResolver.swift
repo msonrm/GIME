@@ -15,6 +15,7 @@ enum GamepadInputMode: CaseIterable {
     case korean
     case chineseSimplified
     case chineseTraditional
+    case devanagari
 
     var label: String {
         switch self {
@@ -23,6 +24,7 @@ enum GamepadInputMode: CaseIterable {
         case .korean: return "한국어"
         case .chineseSimplified: return "简体"
         case .chineseTraditional: return "繁體"
+        case .devanagari: return "देव"
         }
     }
 
@@ -304,3 +306,112 @@ let zhuyinToPinyinInitial: [Character: Character] = [
     "ㄦ": "e",
     "ㄧ": "y", "ㄨ": "w", "ㄩ": "y",
 ]
+
+// MARK: - Devanagari テーブル（varnamala 時計回り方式）
+
+/// LS 方向 → varga index (0-4)
+/// LS の 5 位置を **varnamala 順に時計回り** に載せる:
+///   ↑ = क (1st)、→ = च (2nd)、↓ = ट (3rd)、← = त (4th)、中立 = प (5th)
+enum DevaVarga: Int {
+    case k = 0         // कवर्ग (軟口蓋) — LS ↑
+    case c = 1         // चवर्ग (口蓋)  — LS →
+    case tRetro = 2    // टवर्ग (そり舌) — LS ↓
+    case tDental = 3   // तवर्ग (歯)    — LS ←
+    case p = 4         // पवर्ग (唇)    — LS 中立
+}
+
+/// varga インデックス → 子音配列 [stop1, stop2, stop3, stop4, nasal]
+/// varnamala 順（無気無声 / 有気無声 / 無気有声 / 有気有声 / 鼻音）。
+/// D-pad 4 方向の配置はこの並びを時計回り（↑→↓←）に載せる:
+///   ↑ = stop1, → = stop2, ↓ = stop3, ← = stop4, LB = nasal
+let devaVargaConsonants: [[Character]] = [
+    ["क", "ख", "ग", "घ", "ङ"],  // कवर्ग
+    ["च", "छ", "ज", "झ", "ञ"],  // चवर्ग
+    ["ट", "ठ", "ड", "ढ", "ण"],  // टवर्ग
+    ["त", "थ", "द", "ध", "न"],  // तवर्ग
+    ["प", "फ", "ब", "भ", "म"],  // पवर्ग
+]
+
+/// 非 varga 子音サブレイヤー（L3 = LS クリックで突入）
+/// LT 離し: semivowel 層（य र ल व）、LT 押し: sibilant + h 層（श ष स ह）。
+/// いずれも D-pad ↑→↓← に割り当て。
+let devaNonVargaSemivowel: [Character] = ["य", "र", "ल", "व"]
+let devaNonVargaSibilant: [Character] = ["श", "ष", "स", "ह"]
+
+/// face button → 母音（varnamala 時計回り: Y=a, B=i, A=u, X=e）
+/// RB は nukta / ओ に割り当てるので face button 4 個のみを用いる。
+let devaFaceVowelIndependent: [VowelButton: Character] = [
+    .u: "अ",  // Y (上) = a
+    .e: "इ",  // B (右) = i
+    .o: "उ",  // A (下) = u
+    .i: "ए",  // X (左) = e
+]
+
+let devaFaceVowelMatra: [VowelButton: Character] = [
+    .u: "ा",  // a → ा (実際は schwa 置換だが composer 側で扱う)
+    .e: "ि",  // i → ि
+    .o: "ु",  // u → ु
+    .i: "े",  // e → े
+]
+
+/// LT 同時押し時の拡張母音（face button 不足分を補う）
+///   LT + A (u-slot) = ṛ (ऋ / ृ)
+let devaFaceVowelIndependentLT: [VowelButton: Character] = [
+    .o: "ऋ",
+]
+let devaFaceVowelMatraLT: [VowelButton: Character] = [
+    .o: "ृ",
+]
+
+/// Devanagari 用 LS 方向
+enum DevaLsDirection {
+    case neutral, up, right, down, left
+}
+
+func resolveDevaVarga(_ dir: DevaLsDirection) -> DevaVarga {
+    switch dir {
+    case .up:      return .k
+    case .right:   return .c
+    case .down:    return .tRetro
+    case .left:    return .tDental
+    case .neutral: return .p
+    }
+}
+
+/// D-pad 方向
+enum DevaDpadDir {
+    case up, right, down, left, none
+}
+
+/// D-pad 方向 → varga 内 stop index (0-3)
+/// ↑ = 0 (無気無声), → = 1 (有気無声), ↓ = 2 (無気有声), ← = 3 (有気有声)
+func resolveDevaStopIndex(_ dir: DevaDpadDir) -> Int? {
+    switch dir {
+    case .up:    return 0
+    case .right: return 1
+    case .down:  return 2
+    case .left:  return 3
+    case .none:  return nil
+    }
+}
+
+/// D-pad 方向 → 非 varga サブレイヤー内インデックス (0-3)
+func resolveDevaNonVargaIndex(_ dir: DevaDpadDir) -> Int? {
+    return resolveDevaStopIndex(dir)
+}
+
+/// D-pad クラスタ表示用: varga 1 つの 5 文字を
+/// (center=nasal, left=stop4, up=stop1, right=stop2, down=stop3) 順で返す。
+/// center = LB = 鼻音、cardinal = 時計回り stop。
+func devaVargaDisplayChars(_ varga: DevaVarga) -> [String] {
+    let row = devaVargaConsonants[varga.rawValue]
+    // [center, left, up, right, down] = [nasal, stop4, stop1, stop2, stop3]
+    return [String(row[4]), String(row[3]), String(row[0]), String(row[1]), String(row[2])]
+}
+
+/// 非 varga サブレイヤー表示用: LT OFF (semivowel) / LT ON (sibilant)
+func devaNonVargaDisplayChars(ltPressed: Bool) -> [String] {
+    let row = ltPressed ? devaNonVargaSibilant : devaNonVargaSemivowel
+    // [center(unused), left=row[3], up=row[0], right=row[1], down=row[2]]
+    return ["", String(row[3]), String(row[0]), String(row[1]), String(row[2])]
+}

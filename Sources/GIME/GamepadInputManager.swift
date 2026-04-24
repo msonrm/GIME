@@ -128,6 +128,10 @@ final class GamepadInputManager {
     private let chordWindow: TimeInterval = 0.300
     private let doubleTapWindow: TimeInterval = 0.400
     private let stickThreshold: Float = 0.5
+    // LS クリックの debounce。DualSense 等の機械式スティックボタンは
+    // Bluetooth 経由でチャタリングが起きやすく、単押しが 2 回の落ちエッジとして
+    // 観測されることがある。この時間内の 2 回目以降の立ち下がりは無視する。
+    private let lsDebounceInterval: TimeInterval = 0.120
 
     private var eagerChar: String?
     private var eagerCharLen: Int = 0
@@ -167,6 +171,9 @@ final class GamepadInputManager {
     private var prevLS = false
     private var prevRS = false
     private var prevStart = false
+
+    // LS 立ち下がりエッジの最終発火時刻（チャタリング除去用）
+    private var lastLsEdgeTime: TimeInterval = 0
 
     // 英語モード状態（ビジュアライザから参照可能）
     private(set) var englishShiftNext = false
@@ -212,6 +219,33 @@ final class GamepadInputManager {
     /// - D-pad 方向エッジが来たら: フラグ解除、D-pad 側で row(LB 込み) を emit
     /// - LB release edge で立ったままなら: そこで ㅁ (row 5) を emit
     private var jamoLbOnlyPending: Bool = false
+
+    // Devanagari モード状態
+    private var devanagariComposer = DevanagariComposer()
+    /// 非 varga サブレイヤー中か（L3 = LS クリックでトグル、1 子音で auto-off）。
+    /// ON の間、D-pad は semivowel (य र ल व) / LT 押下時は sibilant (श ष स ह) を返す。
+    private(set) var devaNonVargaActive: Bool = false
+    /// LS の latched 方向（varga 選択）。LS と D-pad は物理的に左親指で同時操作
+    /// できないため、LS 方向はトグルラッチにしてある:
+    ///  - LS を方向 X に倒す (first push) → latch = X
+    ///  - LS を離す（中立）→ latch は保持
+    ///  - 同じ方向 X を再度倒す → toggle off (latch = neutral)
+    ///  - 別方向 Y に倒す → latch = Y
+    /// これにより、ユーザーは LS で varga を指定してから親指を D-pad に移動できる。
+    private(set) var devaLsDir: DevaLsDirection = .neutral
+
+    /// 現在の Devanagari composing buffer（ビジュアライザ / OSC 連携で参照）
+    var devanagariComposingBuffer: String { devanagariComposer.currentBuffer }
+
+    // Devanagari 内部状態
+    /// D-pad 前回方向（devanagari の stop 変化検知用）
+    private var prevDevaDpadDir: DevaDpadDir = .none
+    /// 前回のフェイスボタン（母音エッジ検出）
+    private var prevDevaFace: VowelButton?
+    /// LS の前回物理方向（edge 検出用）
+    private var prevDevaRawLsDir: DevaLsDirection = .neutral
+    /// RT 押下中にカーソル移動を発火したか（release 時に halant を抑止するフラグ）
+    private var devaRtUsedForCursor: Bool = false
 
     // 中国語モード状態
     private(set) var pinyinBuffer: String = ""
@@ -364,6 +398,10 @@ final class GamepadInputManager {
             } else {
                 newPreview = nil
             }
+        case .devanagari:
+            // Devanagari は独自レイヤーのため既存の activeRow/vowel 経由のプレビューは出さない。
+            // ビジュアライザ側で devaLsDir / devaNonVargaActive を見て描画する。
+            newPreview = nil
         }
         if previewChar != newPreview { previewChar = newPreview }
 
@@ -402,6 +440,15 @@ final class GamepadInputManager {
             handleChineseInput(gp, row: row, vowel: vowel, ltNow: ltNow, rtNow: rtNow, now: now)
         case .chineseTraditional:
             handleZhuyinInput(gp, row: row, vowel: vowel, ltNow: ltNow, rtNow: rtNow, now: now)
+        case .devanagari:
+            handleDevanagariInput(
+                gp: gp, ltNow: ltNow, rtNow: rtNow,
+                rStickUp: rStickUp, rStickDown: rStickDown,
+                rStickLeft: rStickLeft, rStickRight: rStickRight,
+                lStickUp: lStickUp, lStickDown: lStickDown,
+                lStickLeft: lStickLeft, lStickRight: lStickRight,
+                now: now
+            )
         }
 
         // === 右スティック（共通: ← バックスペース） ===
@@ -410,6 +457,14 @@ final class GamepadInputManager {
                 pinyinBuffer.removeLast()
                 if !zhuyinDisplayBuffer.isEmpty { zhuyinDisplayBuffer.removeLast() }
                 updatePinyinCandidates()
+            } else if currentMode == .devanagari {
+                // Devanagari: composer の buffer を 1 文字 backspace し
+                // 表示も 1 文字削除。composer 側が state を再計算する。
+                if let out = devanagariComposer.backspace() {
+                    onDirectInsert?(out.text, out.replaceCount)
+                } else {
+                    onDeleteBackward?()
+                }
             } else {
                 executeAction(.deleteBack)
             }
@@ -442,6 +497,9 @@ final class GamepadInputManager {
                 confirmPinyinTopCandidate()
                 onDirectInsert?("、", 0)
             }
+        case .devanagari:
+            // Devanagari の RS ↑ (anusvara) / RS → (long shift) は handleDevanagariInput() 内で処理
+            break
         }
 
         // R🕹↓ 句読点・空白（全言語共通の多段タップ）
@@ -505,11 +563,28 @@ final class GamepadInputManager {
                     rStickDownTapCount = 0
                     rStickDownLastTime = 0
                 }
+            case .devanagari:
+                // ␣ → । (danda) → ॥ (double danda)
+                switch rStickDownTapCount {
+                case 0:
+                    // cluster を確定してから空白
+                    devanagariComposer.commit()
+                    onDirectInsert?(" ", 0)
+                case 1: onDirectInsert?("।", 1)
+                default:
+                    onDirectInsert?("॥", 1)
+                    rStickDownTapCount = 0
+                    rStickDownLastTime = 0
+                }
             }
         }
 
         // === 左スティック（方向の解決は上で実施済み） ===
-        if isChinese && !pinyinCandidates.isEmpty {
+        // Devanagari モードでは LS 方向は varga 選択（latch）またはカーソル移動（RT+LS）に
+        // 使うので、この共通経路は一切通さない。handleDevanagariInput() が処理済み。
+        if currentMode == .devanagari {
+            // no-op
+        } else if isChinese && !pinyinCandidates.isEmpty {
             // 中国語候補選択中: ↑↓ で候補移動（スライディングウィンドウ）
             if lStickDown && !prevLStickDown {
                 if pinyinSelectedIndex < pinyinCandidates.count - 1 {
@@ -584,9 +659,18 @@ final class GamepadInputManager {
                 onDirectInsert?(" ", 0)
             }
         }
-        if prevLS && !gp.lsClick {
+        // DualSense 等のチャタリング対策として lsDebounceInterval 以内の
+        // 再落ちエッジは無視する（Android 版と同じ方針）。
+        if prevLS && !gp.lsClick && now >= lastLsEdgeTime + lsDebounceInterval {
+            lastLsEdgeTime = now
             if isChinese && !pinyinCandidates.isEmpty {
                 confirmPinyinSelectedCandidate()
+            } else if currentMode == .devanagari {
+                // LS click = 非 varga サブレイヤーをトグル。
+                // 注意: composer は commit しない。cluster 途中で子音クラスを
+                // 切替える必要がある（例: स्त्य = sibilant → varga → semivowel）
+                // ので、halant 自動挿入を効かせるには state 保持が必須。
+                devaNonVargaActive.toggle()
             } else {
                 executeAction(.confirmOrNewline)
             }
@@ -628,6 +712,14 @@ final class GamepadInputManager {
             koreanLTHolding = false
             koreanLTShortTapEligible = false
             clearPinyinState()
+            // Devanagari もリセット
+            devanagariComposer.commit()
+            devaNonVargaActive = false
+            devaLsDir = .neutral
+            prevDevaDpadDir = .none
+            prevDevaFace = nil
+            prevDevaRawLsDir = .neutral
+            devaRtUsedForCursor = false
             // 中国語モードの variant を同期
             if currentMode == .chineseSimplified {
                 pinyinEngine?.variant = .simplified
@@ -1296,6 +1388,202 @@ final class GamepadInputManager {
                 updatePinyinCandidates()
             }
         }
+    }
+
+    // MARK: - Devanagari 入力
+
+    /// Devanagari モードの入力処理。
+    ///
+    /// レイヤー設計（varnamala 時計回り）:
+    /// - LS 方向 → varga 選択 (↑क →च ↓ट ←त 中立प)
+    /// - D-pad 方向 → varga 内 stop (↑1st →2nd ↓3rd ←4th)
+    /// - LB 単独 → 現 varga の鼻音
+    /// - Face button → 母音（Y=a, B=i, A=u, X=e）
+    ///   合成中なら matra、そうでなければ independent vowel（composer が自動判定）
+    /// - RT → halant（明示的 schwa 終端）
+    /// - RT + LS → カーソル移動（LS 方向を latch ではなく cursor として扱う）
+    /// - LT + RT → visarga (ः)
+    /// - RB → ओ（単押し）/ LT+RB → nukta ़
+    /// - LT + face → 拡張母音（LT+A=ऋ）
+    /// - RS ↑ → anusvara ↔ chandrabindu トグル
+    /// - RS → → 長母音 post-shift（直前 matra / 独立母音を長形に）
+    /// - L3 (LS クリック) → 非 varga サブレイヤーをトグル（ここでは LS click は
+    ///   handleSnapshot 側で処理済み。本関数内では扱わない）
+    ///
+    /// 各 edge で composer 経由で onDirectInsert を呼ぶ。chord 処理は composer 側の
+    /// 「子音→matra は schwa 置換」「halant 明示」で吸収される。
+    private func handleDevanagariInput(
+        gp: GamepadSnapshot,
+        ltNow: Bool, rtNow: Bool,
+        rStickUp: Bool, rStickDown: Bool, rStickLeft: Bool, rStickRight: Bool,
+        lStickUp: Bool, lStickDown: Bool, lStickLeft: Bool, lStickRight: Bool,
+        now: TimeInterval
+    ) {
+        // --- RT press edge: カーソル使用フラグを先にリセット ---
+        // LS handling より前に行うことで、同一フレームで RT press + LS edge が
+        // 起きた時でも正しく cursor move → rtUsedForCursor=true の順で処理される。
+        if rtNow && !prevRT {
+            devaRtUsedForCursor = false
+        }
+
+        // --- LS 方向 → varga (toggle-latched) or カーソル移動（RT 押下中）---
+        //  - RT 押下中: LS エッジはカーソル移動として解釈（latch 更新しない）
+        //  - RT 非押下: latch 更新（edge 時に同方向なら toggle off、別方向なら latch）
+        let rawLsDir: DevaLsDirection
+        if lStickUp { rawLsDir = .up }
+        else if lStickRight { rawLsDir = .right }
+        else if lStickDown { rawLsDir = .down }
+        else if lStickLeft { rawLsDir = .left }
+        else { rawLsDir = .neutral }
+
+        let lsPushEdge = rawLsDir != .neutral && rawLsDir != prevDevaRawLsDir
+        if rtNow {
+            if lsPushEdge {
+                switch rawLsDir {
+                case .left:  onCursorMove?(-1)
+                case .right: onCursorMove?(1)
+                case .up:    onCursorMoveVertical?(-1)
+                case .down:  onCursorMoveVertical?(1)
+                case .neutral: break
+                }
+                devaRtUsedForCursor = true
+            }
+        } else if lsPushEdge {
+            devaLsDir = (devaLsDir == rawLsDir) ? .neutral : rawLsDir
+        }
+        let varga = resolveDevaVarga(devaLsDir)
+
+        // --- D-pad 方向（現在）---
+        let dpadDir: DevaDpadDir
+        if gp.dpadUp { dpadDir = .up }
+        else if gp.dpadRight { dpadDir = .right }
+        else if gp.dpadDown { dpadDir = .down }
+        else if gp.dpadLeft { dpadDir = .left }
+        else { dpadDir = .none }
+        // 「前回と違う非 none 方向」= 新規押下エッジ（方向 swap も含む）
+        let dpadEdge = dpadDir != .none && dpadDir != prevDevaDpadDir
+
+        // --- LB edge（鼻音）---
+        let lbEdge = gp.lb && !prevLB
+
+        // --- Face button（Devanagari 独自配置: RB は別扱いなので除外）---
+        let face: VowelButton?
+        if gp.buttonY { face = .u }          // Y (上) = a
+        else if gp.buttonB { face = .e }     // B (右) = i
+        else if gp.buttonA { face = .o }     // A (下) = u
+        else if gp.buttonX { face = .i }     // X (左) = e
+        else { face = nil }
+        let faceEdge = face != nil && face != prevDevaFace
+
+        // === 子音 emission ===
+        if dpadEdge {
+            var consonant: Character?
+            if devaNonVargaActive {
+                if let nvIdx = resolveDevaNonVargaIndex(dpadDir) {
+                    consonant = ltNow ? devaNonVargaSibilant[nvIdx] : devaNonVargaSemivowel[nvIdx]
+                }
+            } else {
+                if let stopIdx = resolveDevaStopIndex(dpadDir) {
+                    consonant = devaVargaConsonants[varga.rawValue][stopIdx]
+                }
+            }
+            if let c = consonant {
+                let out = devanagariComposer.inputConsonant(c)
+                onDirectInsert?(out.text, out.replaceCount)
+                // 非 varga サブレイヤーは 1 文字入力で自動 OFF（one-shot）。
+                // 連続 2 文字非 varga が必要な場合は L3 を再度押す。
+                if devaNonVargaActive {
+                    devaNonVargaActive = false
+                }
+            }
+        }
+
+        // === 鼻音（LB 単独）emission ===
+        // LB は常に「現 LS 方向の varga 鼻音」を発火（非 varga 状態に無関係）。
+        if lbEdge {
+            let nasal = devaVargaConsonants[varga.rawValue][4]
+            let out = devanagariComposer.inputConsonant(nasal)
+            onDirectInsert?(out.text, out.replaceCount)
+        }
+
+        // === 母音 emission ===
+        // 合成中（子音直後）なら matra、そうでなければ independent vowel。
+        // composer.inputMatra() が nil を返したら independent を試す。
+        // LT 同時押しで拡張母音 (LT+A=ṛ)。ओ は RB 単押しに昇格したので LT+Y は通常 अ。
+        if faceEdge, let face {
+            let matra = ltNow
+                ? (devaFaceVowelMatraLT[face] ?? devaFaceVowelMatra[face])
+                : devaFaceVowelMatra[face]
+            let indep = ltNow
+                ? (devaFaceVowelIndependentLT[face] ?? devaFaceVowelIndependent[face])
+                : devaFaceVowelIndependent[face]
+            if let matra, let indep {
+                if let matraOut = devanagariComposer.inputMatra(matra) {
+                    onDirectInsert?(matraOut.text, matraOut.replaceCount)
+                } else {
+                    let out = devanagariComposer.inputIndependentVowel(indep)
+                    onDirectInsert?(out.text, out.replaceCount)
+                }
+            }
+        }
+
+        // === LT + RT 同時押し: visarga (ः) ===
+        // 両トリガーが held 状態に遷移したフレームで visarga を emit。
+        // halant 発火を抑止するため devaRtUsedForCursor を true にする。
+        let bothTriggersHeld = ltNow && rtNow
+        let bothTriggersWerePrevHeld = prevLT && prevRT
+        if bothTriggersHeld && !bothTriggersWerePrevHeld {
+            if let out = devanagariComposer.inputVisarga() {
+                onDirectInsert?(out.text, out.replaceCount)
+                devaRtUsedForCursor = true
+            }
+        }
+
+        // === RT release edge: カーソル使用していなければ halant を emit ===
+        if !rtNow && prevRT {
+            if !devaRtUsedForCursor {
+                if let out = devanagariComposer.inputHalant() {
+                    onDirectInsert?(out.text, out.replaceCount)
+                }
+            }
+            devaRtUsedForCursor = false
+        }
+
+        // === RB edge: ओ（単押し）/ nukta（LT 同時押し）===
+        // ओ は Hindi で頻出なので RB 単押しに配置。nukta は稀なので LT+RB。
+        if gp.rb && !prevRB {
+            if ltNow {
+                if let out = devanagariComposer.inputNukta() {
+                    onDirectInsert?(out.text, out.replaceCount)
+                }
+            } else {
+                if let matraOut = devanagariComposer.inputMatra("ो") {
+                    onDirectInsert?(matraOut.text, matraOut.replaceCount)
+                } else {
+                    let out = devanagariComposer.inputIndependentVowel("ओ")
+                    onDirectInsert?(out.text, out.replaceCount)
+                }
+            }
+        }
+
+        // === RS ↑: anusvara ↔ chandrabindu トグル ===
+        if rStickUp && !prevRStickUp {
+            if let out = devanagariComposer.toggleAnusvara() {
+                onDirectInsert?(out.text, out.replaceCount)
+            }
+        }
+
+        // === RS →: 長母音 post-shift（直前 matra / 独立母音を長形に）===
+        if rStickRight && !prevRStickRight {
+            if let out = devanagariComposer.applyLongShift() {
+                onDirectInsert?(out.text, out.replaceCount)
+            }
+        }
+
+        // --- 次フレーム用 state 保存 ---
+        prevDevaDpadDir = dpadDir
+        prevDevaFace = face
+        prevDevaRawLsDir = rawLsDir
     }
 
     // MARK: - 中国語ヘルパー
