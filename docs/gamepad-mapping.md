@@ -1,7 +1,9 @@
 # ゲームパッド入力 マッピング仕様書
 
-ゲームパッド（W3C Standard Gamepad Layout 準拠）で日本語・英語・韓国語・中国語簡体字・中国語繁體字を入力する方式。
+ゲームパッド（W3C Standard Gamepad Layout 準拠）で日本語・英語・韓国語・中国語簡体字・中国語繁體字・Devanagari（Android のみ）を入力する方式。
 Start ボタンでモードを切り替える。
+
+> **Devanagari モード**（GIME Android, Phase A9）は朗唱順ベースの独自 layout を採用しており、本ドキュメントのモード共通原則から外れる。詳細は [`docs/gime-brahmic-expansion-memo.md`](gime-brahmic-expansion-memo.md) を参照。
 
 ## 設計原則
 
@@ -20,8 +22,9 @@ Start ボタンでモードを切り替える。
 | 英語 | 緑 | | GCController → GamepadInputManager → **onDirectInsert**（IME バイパス） |
 | 中国語簡体 | 赤 | | GCController → GamepadInputManager → **PinyinEngine** → **onDirectInsert**（IME バイパス） |
 | 中国語繁體 | 青 | | GCController → GamepadInputManager → **注音テーブル** → **PinyinEngine** → **onDirectInsert**（IME バイパス） |
+| Devanagari (Android のみ) | — | | GamepadInputManager → **DevanagariComposer**（akshara buffer）→ **onDirectInsert**（IME バイパス） |
 
-サイクル順（Start ボタン）: デフォルトは **日本語 → 韓国語 → 英語 → 中国語簡体 → 中国語繁體 → 日本語**。設定シートで有効/無効の切替と、ドラッグによる順序変更が可能。
+サイクル順（Start ボタン）: デフォルトは **日本語 → 韓国語 → 英語 → 中国語簡体 → 中国語繁體 → Devanagari → 日本語**（Devanagari は Android のみ）。設定シートで有効/無効の切替と、順序変更が可能。
 
 ---
 
