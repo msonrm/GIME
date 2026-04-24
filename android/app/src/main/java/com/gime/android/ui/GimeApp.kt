@@ -526,18 +526,16 @@ fun DpadDisplay(inputManager: GamepadInputManager) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // 本体: 左端ショルダー | D-pad | 右端ショルダー
-        // モードラベルは左端カラムの最上段に置いて縦幅を節約
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // 左端: モードバッジ / LT / LB
+            // 左端: LT / LB
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                ModeBadge(mode.label)
                 ShoulderChip(
                     label = ltLabel(mode, inputManager),
                     pressed = inputManager.btnLT,
@@ -1009,21 +1007,6 @@ fun DpadLabel(text: String, isActive: Boolean) {
         fontSize = 13.sp,
         modifier = Modifier.padding(2.dp),
     )
-}
-
-@Composable
-fun ModeBadge(text: String) {
-    // ShoulderChip と揃えたコンパクトサイズ。高さ 22dp、横幅 min 48dp
-    Box(
-        modifier = Modifier
-            .widthIn(min = 48.dp)
-            .height(22.dp)
-            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(5.dp))
-            .padding(horizontal = 6.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(text = text, color = MaterialTheme.colorScheme.onPrimary, fontSize = 11.sp)
-    }
 }
 
 @Composable

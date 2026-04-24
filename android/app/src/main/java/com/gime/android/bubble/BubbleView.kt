@@ -298,8 +298,7 @@ private fun TitleBar(
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            // 言語モードインジケータ（MainActivity のビジュアライザ内にある
-            // ModeBadge と揃える。ここでは KOREAN→韓 など short label を使う）
+            // 言語モードインジケータ（KOREAN→韓 など short label）
             ModeChip(inputManager.currentMode.label)
         }
         Row(

@@ -204,6 +204,10 @@ class GamepadInputManager {
     private val triggerReleaseThreshold: Float = 0.15f
     // LT+RT=っ 出力後「ん」発火を抑止する時間（ms）。RT のジッター・バウンド対策
     private val nBlockAfterTsu: Long = 300L
+    // LS クリックの debounce。DualSense 等の機械式スティックボタンは
+    // Bluetooth 経由でチャタリングが起きやすく、単押しが 2 回の落ちエッジとして
+    // 観測されることがある。この時間内の 2 回目以降の立ち下がりは無視する。
+    private val lsDebounceMs: Long = 120L
     private val chordWindow: Long = 300L  // ms
     private val doubleTapWindow: Long = 400L
     private val rStickTapWindow: Long = 700L  // アナログスティック往復分を考慮して広め
@@ -225,6 +229,9 @@ class GamepadInputManager {
     private var nBlockUntil: Long = 0
     private var prevLT = false
     private var prevRT = false
+
+    // LS 立ち下がりエッジの最終発火時刻（チャタリング除去用）
+    private var lastLsEdgeTime: Long = 0
 
     // 右スティック
     private var rStickDownLastTime: Long = 0
@@ -748,7 +755,9 @@ class GamepadInputManager {
         }
 
         // --- LS クリック: 確定/改行（日本語変換中は確定、中国語候補あれば候補確定）---
-        if (prevLS && !gp.lsClick) {
+        // DualSense 等のチャタリング対策として lsDebounceMs 以内の再落ちエッジは無視する。
+        if (prevLS && !gp.lsClick && now >= lastLsEdgeTime + lsDebounceMs) {
+            lastLsEdgeTime = now
             val isChinese = currentMode == GamepadInputMode.CHINESE_SIMPLIFIED ||
                     currentMode == GamepadInputMode.CHINESE_TRADITIONAL
             when {
