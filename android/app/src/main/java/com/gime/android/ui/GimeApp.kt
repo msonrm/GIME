@@ -911,7 +911,7 @@ private fun RightStickHint(
             upLabel = ""; downLabel = "，。␣"; rightLabel = "、"
         }
         com.gime.android.engine.GamepadInputMode.DEVANAGARI -> {
-            upLabel = "ंँ"; downLabel = "␣।"; rightLabel = "長"
+            upLabel = "ंँ"; downLabel = "␣।"; rightLabel = "ा"
         }
     }
     val leftLabel = "⌫"

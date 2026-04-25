@@ -207,7 +207,9 @@ class GamepadInputManager {
     // LS クリックの debounce。DualSense 等の機械式スティックボタンは
     // Bluetooth 経由でチャタリングが起きやすく、単押しが 2 回の落ちエッジとして
     // 観測されることがある。この時間内の 2 回目以降の立ち下がりは無視する。
-    private val lsDebounceMs: Long = 120L
+    // 当初 120ms で導入したが実機で 2 度押し化が頻発するため 250ms に拡張。
+    // 意図的な double-tap には LS を使っていないので副作用なし。
+    private val lsDebounceMs: Long = 250L
     private val chordWindow: Long = 300L  // ms
     private val doubleTapWindow: Long = 400L
     private val rStickTapWindow: Long = 700L  // アナログスティック往復分を考慮して広め
