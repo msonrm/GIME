@@ -262,6 +262,9 @@ fun GamepadVisualizer(
     /// `N/144` カウンターをバッジ横に出す。0 のときは非表示。バブル側は
     /// タイトルバーで別途カウンターを出すので showVrChatBadge=false の際は隠す。
     chatboxLength: Int = 0,
+    /// LS / RS のビジュアル表現スタイル。バブルのように横幅が限られる文脈では
+    /// [StickStyle.TEXT] を渡して旧来のテキストヒントにフォールバックする。
+    stickStyle: StickStyle = StickStyle.GRAPHIC,
 ) {
     // compact モードでは外枠の背景とパディングを省いて省スペース化。
     // 内部の composing/候補ブロックは個別に背景を持っているので見栄えは崩れない。
@@ -326,7 +329,7 @@ fun GamepadVisualizer(
         // 中国語は即時候補表示でも邪魔にならないよう常に表示する。
         // compact モードでは D-pad を一切表示しない。
         if (!compact && !inputManager.isConverting) {
-            DpadDisplay(inputManager = inputManager)
+            DpadDisplay(inputManager = inputManager, stickStyle = stickStyle)
         }
     }
 }
@@ -509,8 +512,28 @@ private fun dpadDirectionForRow(row: Int): Int = when (row) {
     else -> 0  // neutral (center)
 }
 
+/// LS / RS のビジュアル表現スタイル。バブル表示のように横幅が限られる場面では
+/// [TEXT] でテキスト形式の RightStickHint にフォールバックする。
+enum class StickStyle { GRAPHIC, TEXT }
+
+/// 統一レイアウトのビジュアライザ本体。
+///
+/// レイアウト（全モード共通、言語切替で揺れない）:
+/// ```
+/// [LT][LB]                                  [RB][RT]   ← 上段: ショルダー＋トリガー
+/// [LS◯]  [D-pad 3×3]    [Face 3×3]   [RS◯]            ← 中段: スティック + クラスタ
+/// (TEXT スタイル時) R: ↑... ↓... ←... →...           ← 下段: 旧式テキストヒント
+/// ```
+///
+/// - D-pad / フェイスボタンは中央セルを持たない 3×3（4 方向のみ）
+/// - LS / RS は単一円 + 方向ドット（[StickStyle.GRAPHIC]）または旧式テキスト（[StickStyle.TEXT]）
+/// - LS の Devanagari latch は方向ドットを保持して表現
+/// - ボタン形状: D-pad / ショルダー = 角丸矩形 / フェイスボタン・スティック = 円
 @Composable
-fun DpadDisplay(inputManager: GamepadInputManager) {
+fun DpadDisplay(
+    inputManager: GamepadInputManager,
+    stickStyle: StickStyle = StickStyle.GRAPHIC,
+) {
     val mode = inputManager.currentMode
     val activeRow = inputManager.activeRow
     val isLB = inputManager.activeLayer == GamepadInputManager.ActiveLayer.LB
@@ -518,166 +541,151 @@ fun DpadDisplay(inputManager: GamepadInputManager) {
     val englishShift = inputManager.englishCapsLock || inputManager.englishSmartCaps || inputManager.englishShiftNext
     val isRT = inputManager.btnRT
 
-    // 現在アクティブな D-pad 方向のフェイスボタン文字（RB ラベルや韓国語母音の動的表示に使用）
-    val activeRowFaceChars: Array<String> = getFaceChars(mode, activeRow, englishShift, isRT)
+    // 現在アクティブな D-pad 方向のフェイスボタン文字（RB ラベル等の動的表示に使用）
+    val activeRowFaceChars: Array<String> = getFaceChars(mode, activeRow, englishShift, isRT, inputManager)
 
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        // 本体: 左端ショルダー | D-pad | 右端ショルダー
+        // 上段: トリガー & ショルダー
+        // 左 [LT][LB]、右 [RB][RT] と外→内の順で実機の物理配置に合わせる。
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // 左端: LT / LB
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                ShoulderChip(
-                    label = ltLabel(mode, inputManager),
-                    pressed = inputManager.btnLT,
-                )
-                ShoulderChip(
-                    label = lbLabel(mode, isLB, inputManager),
-                    pressed = inputManager.btnLB,
-                )
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                ShoulderChip(label = ltLabel(mode, inputManager), pressed = inputManager.btnLT)
+                ShoulderChip(label = lbLabel(mode, isLB, inputManager), pressed = inputManager.btnLB)
             }
-
-            // 中央: D-pad クラスタ + (韓国語・Devanagari のみ) フェイスボタンを横並び
-            when (mode) {
-                com.gime.android.engine.GamepadInputMode.KOREAN -> {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        DpadCluster(mode = mode, isLB = isLB, dir = dir, englishShift = englishShift)
-                        KoreanFaceButtons(inputManager, vowels = activeRowFaceChars)
-                    }
-                }
-                com.gime.android.engine.GamepadInputMode.DEVANAGARI -> {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        DevaDpadCluster(inputManager = inputManager, dir = dir)
-                        DevaFaceButtons(inputManager = inputManager)
-                    }
-                }
-                else -> {
-                    DpadCluster(mode = mode, isLB = isLB, dir = dir, englishShift = englishShift)
-                }
-            }
-
-            // 右端: RT / RB
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                ShoulderChip(
-                    label = rtLabel(mode, inputManager),
-                    pressed = inputManager.btnRT,
-                )
-                ShoulderChip(
-                    label = rbLabel(mode, activeRowFaceChars, inputManager),
-                    pressed = inputManager.btnRB,
-                )
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                ShoulderChip(label = rbLabel(mode, activeRowFaceChars, inputManager), pressed = inputManager.btnRB)
+                ShoulderChip(label = rtLabel(mode, inputManager), pressed = inputManager.btnRT)
             }
         }
 
-        // 右スティック方向のヒント（モード別）
-        Spacer(modifier = Modifier.height(6.dp))
-        RightStickHint(mode, inputManager)
+        // 中段: LS | D-pad | Face buttons | RS
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (stickStyle == StickStyle.GRAPHIC) {
+                StickIndicator(
+                    role = StickRole.LEFT,
+                    mode = mode,
+                    inputManager = inputManager,
+                )
+            } else {
+                Spacer(modifier = Modifier.size(0.dp))
+            }
+            DpadCluster3x3(mode = mode, isLB = isLB, dir = dir, englishShift = englishShift, inputManager = inputManager)
+            FaceButtons3x3(faceChars = activeRowFaceChars, inputManager = inputManager)
+            if (stickStyle == StickStyle.GRAPHIC) {
+                StickIndicator(
+                    role = StickRole.RIGHT,
+                    mode = mode,
+                    inputManager = inputManager,
+                )
+            } else {
+                Spacer(modifier = Modifier.size(0.dp))
+            }
+        }
+
+        // 下段: TEXT スタイルのみ。バブル等の横幅が限られる文脈で従来の R: ↑... を維持。
+        if (stickStyle == StickStyle.TEXT) {
+            RightStickHint(mode, inputManager)
+        }
     }
 }
 
-/// D-pad 5 セルを「フェイスボタン配置」で並べる（全モード統一）
+/// D-pad 4 セル（中央なし）。LS が neutral のときの行 0 内容は LS スティックの中心と
+/// フェイスボタンが提示するため、D-pad は方向セルだけで十分。
 @Composable
-private fun DpadCluster(
+private fun DpadCluster3x3(
     mode: com.gime.android.engine.GamepadInputMode,
     isLB: Boolean,
     dir: Int,
     englishShift: Boolean,
+    inputManager: GamepadInputManager,
 ) {
+    val cellSize = 40.dp
     val offset = if (isLB) 5 else 0
-    // 韓国語は単一子音のみ表示なので小さめ（フェイスボタンと同程度）
-    val cellSize = if (mode == com.gime.android.engine.GamepadInputMode.KOREAN) 34.dp else 58.dp
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        ClusterCell(mode, 2 + offset, isActive = dir == 2, englishShift = englishShift, size = cellSize)
+        ClusterCell(mode, 2 + offset, dir == 2, englishShift, inputManager, cellSize)
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            ClusterCell(mode, 1 + offset, isActive = dir == 1, englishShift = englishShift, size = cellSize)
-            ClusterCell(mode, 0 + offset, isActive = dir == 0, englishShift = englishShift, size = cellSize)
-            ClusterCell(mode, 3 + offset, isActive = dir == 3, englishShift = englishShift, size = cellSize)
+            ClusterCell(mode, 1 + offset, dir == 1, englishShift, inputManager, cellSize)
+            Spacer(modifier = Modifier.size(cellSize))
+            ClusterCell(mode, 3 + offset, dir == 3, englishShift, inputManager, cellSize)
         }
-        ClusterCell(mode, 4 + offset, isActive = dir == 4, englishShift = englishShift, size = cellSize)
+        ClusterCell(mode, 4 + offset, dir == 4, englishShift, inputManager, cellSize)
     }
 }
 
-/// 1 つの D-pad セル。内部に最大 5 文字を十字配置。Korean は単一中央表示。
+/// 1 つの D-pad セル。Japanese/English/Chinese は内部 5 文字を十字配置で表示し、
+/// Korean / Devanagari は単一文字を中央に表示する（chars 配列の長さで判定）。
 @Composable
 private fun ClusterCell(
     mode: com.gime.android.engine.GamepadInputMode,
     row: Int,
     isActive: Boolean,
     englishShift: Boolean,
-    size: androidx.compose.ui.unit.Dp = 58.dp,
+    inputManager: GamepadInputManager,
+    size: androidx.compose.ui.unit.Dp,
 ) {
-    val chars = getCellChars(mode, row, englishShift)
+    val chars = getCellChars(mode, row, englishShift, inputManager)
     val bg = if (isActive) MaterialTheme.colorScheme.primaryContainer
              else MaterialTheme.colorScheme.surfaceContainerHigh
     val fg = if (isActive) MaterialTheme.colorScheme.onPrimaryContainer
              else MaterialTheme.colorScheme.onSurfaceVariant
-    // Korean は中央 1 文字のみなので余白表示は省略。他モードは十字配置
-    val isKoreanSmall = mode == com.gime.android.engine.GamepadInputMode.KOREAN
+    val isSingle = mode == com.gime.android.engine.GamepadInputMode.KOREAN ||
+                   mode == com.gime.android.engine.GamepadInputMode.DEVANAGARI
     Box(
         modifier = Modifier
             .size(size)
             .background(bg, RoundedCornerShape(8.dp)),
         contentAlignment = Alignment.Center,
     ) {
-        if (isKoreanSmall) {
-            // 中央 1 文字のみ
+        if (isSingle) {
             if (chars.isNotEmpty() && chars[0].isNotEmpty()) {
-                Text(chars[0], color = fg, fontSize = 14.sp)
+                Text(chars[0], color = fg, fontSize = 16.sp)
             }
             return@Box
         }
-        // 上 = index 2 (Y)
+        // 5 文字を十字配置（中央=row[0]、上=row[2]、下=row[4]、左=row[1]、右=row[3]）
         if (chars.size > 2 && chars[2].isNotEmpty()) {
-            Text(chars[2], color = fg, fontSize = 10.sp,
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 3.dp))
+            Text(chars[2], color = fg, fontSize = 9.sp,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 2.dp))
         }
-        // 下 = index 4 (A)
         if (chars.size > 4 && chars[4].isNotEmpty()) {
-            Text(chars[4], color = fg, fontSize = 10.sp,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 3.dp))
+            Text(chars[4], color = fg, fontSize = 9.sp,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp))
         }
-        // 左 = index 1 (X)
         if (chars.size > 1 && chars[1].isNotEmpty()) {
-            Text(chars[1], color = fg, fontSize = 10.sp,
-                modifier = Modifier.align(Alignment.CenterStart).padding(start = 4.dp))
+            Text(chars[1], color = fg, fontSize = 9.sp,
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = 3.dp))
         }
-        // 右 = index 3 (B)
         if (chars.size > 3 && chars[3].isNotEmpty()) {
-            Text(chars[3], color = fg, fontSize = 10.sp,
-                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 4.dp))
+            Text(chars[3], color = fg, fontSize = 9.sp,
+                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 3.dp))
         }
-        // 中央 = index 0 (RB またはニュートラル)
         if (chars.isNotEmpty() && chars[0].isNotEmpty()) {
-            Text(chars[0], color = fg, fontSize = 13.sp)
+            Text(chars[0], color = fg, fontSize = 12.sp)
         }
     }
 }
 
-/// D-pad セル内に表示する 5 文字（モード・行・英語 Shift を反映）。
-/// index 0=中央(RB相当), 1=左(X), 2=上(Y), 3=右(B), 4=下(A)。
-/// 韓国語は中央に単一子音のみ。
+/// 1 セル内に表示する文字列を返す。
+/// - Japanese / English / Chinese: 5 文字を十字配置（[center, left, up, right, down]）
+/// - Korean / Devanagari: 単一文字（[char]）
+/// - 該当行が無いときは空配列
 private fun getCellChars(
     mode: com.gime.android.engine.GamepadInputMode,
     row: Int,
     englishShift: Boolean,
+    inputManager: GamepadInputManager,
 ): Array<String> {
     return when (mode) {
         com.gime.android.engine.GamepadInputMode.JAPANESE ->
@@ -693,120 +701,195 @@ private fun getCellChars(
         com.gime.android.engine.GamepadInputMode.KOREAN -> {
             val labels = if (row < 5) com.gime.android.engine.KOREAN_DPAD_LABELS_BASE
             else com.gime.android.engine.KOREAN_DPAD_LABELS_LB
-            val idx = row % 5
-            val single = when (idx) {
+            val single = when (row % 5) {
                 0 -> labels.center; 1 -> labels.left; 2 -> labels.up
                 3 -> labels.right; 4 -> labels.down; else -> ""
             }
-            arrayOf(single, "", "", "", "")
+            arrayOf(single)
         }
-        com.gime.android.engine.GamepadInputMode.DEVANAGARI ->
-            // DevaDpadCluster が直接描画するので、getCellChars は呼ばれない想定。
-            // fallback として空配列。
-            emptyArray()
+        com.gime.android.engine.GamepadInputMode.DEVANAGARI -> {
+            // Devanagari は activeRow を使わず、devaLsDir と devaNonVargaActive で
+            // 4 方向の 1 文字を直接決める。row パラメータをそのまま方向 index として使う。
+            val all: Array<String> = if (inputManager.devaNonVargaActive) {
+                com.gime.android.engine.devaNonVargaDisplayChars(inputManager.btnLT)
+            } else {
+                com.gime.android.engine.devaVargaDisplayChars(
+                    com.gime.android.engine.resolveDevaVarga(inputManager.devaLsDir)
+                )
+            }
+            // all は [center, left, up, right, down] 順。row index 1..4 が 4 方向に対応。
+            val idx = row.coerceIn(0, 4)
+            arrayOf(all.getOrElse(idx) { "" })
+        }
     }
 }
 
 /// 現在アクティブな D-pad 方向でフェイスボタン (X/Y/A/B/RB) を押すと出る文字。
-/// RB ラベルの動的表示や、韓国語の母音フェイスボタン表示に使う。
-/// 韓国語は activeRow と無関係に vowels を返す（RT で shifted）。
+/// RB ラベルの動的表示や、韓国語/Devanagari の母音フェイスボタン表示に使う。
 private fun getFaceChars(
     mode: com.gime.android.engine.GamepadInputMode,
     activeRow: Int,
     englishShift: Boolean,
     rtPressed: Boolean,
+    inputManager: GamepadInputManager,
 ): Array<String> {
     return when (mode) {
         com.gime.android.engine.GamepadInputMode.KOREAN ->
             if (rtPressed) com.gime.android.engine.KOREAN_VOWEL_CHARS_SHIFTED
             else com.gime.android.engine.KOREAN_VOWEL_CHARS_BASE
-        com.gime.android.engine.GamepadInputMode.DEVANAGARI ->
-            // Devanagari は DevaFaceButtons で独自描画。fallback（RB ラベル用）に
-            // [center, X=e, Y=a, B=i, A=u] を返す。center は nukta（rbLabel が上書き）。
-            arrayOf("", "ए", "अ", "इ", "उ")
-        else -> getCellChars(mode, activeRow, englishShift)
-    }
-}
-
-/// Devanagari 用 D-pad クラスタ。現在の varga (LS 方向) に応じて
-/// 5 セル (中央=鼻音, 四方=stop) を表示。非 varga モード中は semivowel / sibilant を表示。
-@Composable
-private fun DevaDpadCluster(
-    inputManager: GamepadInputManager,
-    dir: Int,
-) {
-    val ltPressed = inputManager.btnLT
-    val chars: Array<String> = if (inputManager.devaNonVargaActive) {
-        com.gime.android.engine.devaNonVargaDisplayChars(ltPressed)
-    } else {
-        val varga = com.gime.android.engine.resolveDevaVarga(inputManager.devaLsDir)
-        com.gime.android.engine.devaVargaDisplayChars(varga)
-    }
-    val cellSize = 34.dp
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        DevaClusterCell(chars.getOrElse(2) { "" }, isActive = dir == 2, size = cellSize)
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            DevaClusterCell(chars.getOrElse(1) { "" }, isActive = dir == 1, size = cellSize)
-            DevaClusterCell(chars.getOrElse(0) { "" }, isActive = dir == 0, size = cellSize)
-            DevaClusterCell(chars.getOrElse(3) { "" }, isActive = dir == 3, size = cellSize)
+        com.gime.android.engine.GamepadInputMode.DEVANAGARI -> {
+            // [center=RB ラベル相当, X=ए, Y=अ, B=इ, A=उ/ऋ]
+            // varnamala 時計回り。LT 押下で A 方向 (down) のみ ऋ にシフト。
+            val downChar = if (inputManager.btnLT) "ऋ" else "उ"
+            arrayOf("", "ए", "अ", "इ", downChar)
         }
-        DevaClusterCell(chars.getOrElse(4) { "" }, isActive = dir == 4, size = cellSize)
+        else -> getCellChars(mode, activeRow, englishShift, inputManager)
     }
 }
 
+/// フェイスボタン 4 方向（中央なし）。Y=上、X=左、B=右、A=下。
+/// 全モード共通で同じレイアウト・サイズを使う。chars が 5 要素未満の場合は空表示。
 @Composable
-private fun DevaClusterCell(
-    char: String,
-    isActive: Boolean,
-    size: androidx.compose.ui.unit.Dp = 34.dp,
+private fun FaceButtons3x3(
+    faceChars: Array<String>,
+    inputManager: GamepadInputManager,
 ) {
-    val bg = if (isActive) MaterialTheme.colorScheme.primaryContainer
+    val chars = if (faceChars.size >= 5) faceChars else arrayOf("", "", "", "", "")
+    val cellSize = 36.dp
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        FaceButton(chars[2], inputManager.btnY, size = cellSize)
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            FaceButton(chars[1], inputManager.btnX, size = cellSize)
+            Spacer(modifier = Modifier.size(cellSize))
+            FaceButton(chars[3], inputManager.btnB, size = cellSize)
+        }
+        FaceButton(chars[4], inputManager.btnA, size = cellSize)
+    }
+}
+
+/// LS / RS の役割識別。center label と方向ドット計算に使う。
+private enum class StickRole { LEFT, RIGHT }
+
+/// 単一円 + 方向ドット形式のスティックビジュアライザ。
+/// - LS 中心: 現在の row ラベル（あ行 / さ行 等）または Devanagari の varga 名。
+/// - LS ドット: 物理的に倒している方向（中立で消える）。Devanagari は varga latch の
+///   方向にも primary 色のドットを残す（保持表示）。
+/// - LS クリック中は背景を primary に反転。
+@Composable
+private fun StickIndicator(
+    role: StickRole,
+    mode: com.gime.android.engine.GamepadInputMode,
+    inputManager: GamepadInputManager,
+) {
+    val outerSize = 50.dp
+    val dotSize = 10.dp
+    val pressed = if (role == StickRole.LEFT) inputManager.btnLS else inputManager.btnRS
+    val dir = if (role == StickRole.LEFT) inputManager.lStickDir else inputManager.rStickDir
+    // Devanagari の LS latch を「保持ドット」として表示。物理ドットが neutral でも残る。
+    val latchDir: GamepadInputManager.StickDirection = if (
+        role == StickRole.LEFT && mode == com.gime.android.engine.GamepadInputMode.DEVANAGARI
+    ) {
+        when (inputManager.devaLsDir) {
+            com.gime.android.engine.DevaLsDirection.UP -> GamepadInputManager.StickDirection.UP
+            com.gime.android.engine.DevaLsDirection.DOWN -> GamepadInputManager.StickDirection.DOWN
+            com.gime.android.engine.DevaLsDirection.LEFT -> GamepadInputManager.StickDirection.LEFT
+            com.gime.android.engine.DevaLsDirection.RIGHT -> GamepadInputManager.StickDirection.RIGHT
+            com.gime.android.engine.DevaLsDirection.NEUTRAL -> GamepadInputManager.StickDirection.NEUTRAL
+        }
+    } else GamepadInputManager.StickDirection.NEUTRAL
+
+    val bg = if (pressed) MaterialTheme.colorScheme.primary
              else MaterialTheme.colorScheme.surfaceContainerHigh
-    val fg = if (isActive) MaterialTheme.colorScheme.onPrimaryContainer
-             else MaterialTheme.colorScheme.onSurfaceVariant
+    val centerFg = if (pressed) MaterialTheme.colorScheme.onPrimary
+                   else MaterialTheme.colorScheme.onSurfaceVariant
+
     Box(
-        modifier = Modifier
-            .size(size)
-            .background(bg, RoundedCornerShape(8.dp)),
+        modifier = Modifier.size(outerSize).background(bg, androidx.compose.foundation.shape.CircleShape),
         contentAlignment = Alignment.Center,
     ) {
-        if (char.isNotEmpty()) Text(char, color = fg, fontSize = 16.sp)
-    }
-}
-
-/// Devanagari 用フェイスボタン（varnamala 時計回り: ↑a →i ↓u ←e）
-/// LT 同時押しで A → ऋ にシフト（他の 3 つは変化なし）
-@Composable
-private fun DevaFaceButtons(inputManager: GamepadInputManager) {
-    val lt = inputManager.btnLT
-    val downChar = if (lt) "ऋ" else "उ"
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        FaceButton("अ", inputManager.btnY)
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            FaceButton("ए", inputManager.btnX)
-            FaceButton("", pressed = false, isCenter = true)
-            FaceButton("इ", inputManager.btnB)
+        // 中心ラベル: LS は role 表示、RS は単に "RS"
+        val centerLabel = if (role == StickRole.LEFT) stickCenterLabel(mode, inputManager) else "RS"
+        if (centerLabel.isNotEmpty()) {
+            Text(centerLabel, color = centerFg, fontSize = 10.sp)
         }
-        FaceButton(downChar, inputManager.btnA)
+        // latch ドット（neutral 以外で primary 色、保持表示）
+        if (latchDir != GamepadInputManager.StickDirection.NEUTRAL) {
+            StickDot(latchDir, dotSize, isLatch = true)
+        }
+        // 物理ドット（押下方向、neutral で消える）
+        if (dir != GamepadInputManager.StickDirection.NEUTRAL) {
+            StickDot(dir, dotSize, isLatch = false)
+        }
     }
 }
 
-/// 韓国語用: 母音を X/Y/A/B に配置。RT 押下で濃音/ㅣ 付き（shifted）へ動的切替。
 @Composable
-private fun KoreanFaceButtons(
-    inputManager: GamepadInputManager,
-    vowels: Array<String>,
+private fun BoxScope.StickDot(
+    dir: GamepadInputManager.StickDirection,
+    size: androidx.compose.ui.unit.Dp,
+    isLatch: Boolean,
 ) {
-    val chars = if (vowels.size >= 5) vowels else com.gime.android.engine.KOREAN_VOWEL_CHARS_BASE
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        FaceButton(chars[2], inputManager.btnY)
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            FaceButton(chars[1], inputManager.btnX)
-            FaceButton(chars[0], pressed = false, isCenter = true)
-            FaceButton(chars[3], inputManager.btnB)
-        }
-        FaceButton(chars[4], inputManager.btnA)
+    val align: Alignment? = when (dir) {
+        GamepadInputManager.StickDirection.UP -> Alignment.TopCenter
+        GamepadInputManager.StickDirection.DOWN -> Alignment.BottomCenter
+        GamepadInputManager.StickDirection.LEFT -> Alignment.CenterStart
+        GamepadInputManager.StickDirection.RIGHT -> Alignment.CenterEnd
+        GamepadInputManager.StickDirection.NEUTRAL -> null
     }
+    if (align == null) return
+    val color = if (isLatch) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurface
+    Box(
+        modifier = Modifier
+            .align(align)
+            .padding(2.dp)
+            .size(size)
+            .background(color, androidx.compose.foundation.shape.CircleShape),
+    )
+}
+
+/// LS スティック中心の小ラベル。currentMode + activeRow + activeLayer から
+/// 「いまフェイスボタンが何のセットを撃つか」のヒントを返す。
+private fun stickCenterLabel(
+    mode: com.gime.android.engine.GamepadInputMode,
+    m: GamepadInputManager,
+): String {
+    val row = m.activeRow
+    val isLB = m.activeLayer == GamepadInputManager.ActiveLayer.LB
+    return when (mode) {
+        com.gime.android.engine.GamepadInputMode.JAPANESE -> {
+            val labels = if (isLB) com.gime.android.engine.DPAD_LABELS_LB
+                         else com.gime.android.engine.DPAD_LABELS_BASE
+            labels.fromRow(row % 5)
+        }
+        com.gime.android.engine.GamepadInputMode.ENGLISH,
+        com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED -> {
+            val labels = if (isLB) com.gime.android.engine.ENGLISH_DPAD_LABELS_LB
+                         else com.gime.android.engine.ENGLISH_DPAD_LABELS_BASE
+            labels.fromRow(row % 5)
+        }
+        com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL -> {
+            // 注音は固定ラベルが無いので row index を表示
+            "row $row"
+        }
+        com.gime.android.engine.GamepadInputMode.KOREAN -> {
+            val labels = if (isLB) com.gime.android.engine.KOREAN_DPAD_LABELS_LB
+                         else com.gime.android.engine.KOREAN_DPAD_LABELS_BASE
+            labels.fromRow(row % 5)
+        }
+        com.gime.android.engine.GamepadInputMode.DEVANAGARI -> {
+            // varga 代表子音（क/च/ट/त/प）または非 varga サブレイヤー印
+            if (m.devaNonVargaActive) "*"
+            else {
+                val v = com.gime.android.engine.resolveDevaVarga(m.devaLsDir)
+                com.gime.android.engine.DEVA_VARGA_CONSONANTS[v.index][0].toString()
+            }
+        }
+    }
+}
+
+private fun com.gime.android.engine.DpadLabels.fromRow(idx: Int): String = when (idx) {
+    0 -> center; 1 -> left; 2 -> up; 3 -> right; 4 -> down; else -> ""
 }
 
 // iOS 版 GamepadVisualizerView.swift と同じラベル規則
@@ -941,18 +1024,20 @@ private fun RightStickHint(
     }
 }
 
+/// フェイスボタン。iOS 版に合わせて円形（CircleShape）。
 @Composable
-private fun FaceButton(label: String, pressed: Boolean, isCenter: Boolean = false) {
+private fun FaceButton(
+    label: String,
+    pressed: Boolean,
+    size: androidx.compose.ui.unit.Dp = 30.dp,
+) {
     Box(
         modifier = Modifier
-            .size(30.dp)
+            .size(size)
             .background(
-                when {
-                    pressed -> MaterialTheme.colorScheme.primary
-                    isCenter -> MaterialTheme.colorScheme.surfaceContainerLow
-                    else -> MaterialTheme.colorScheme.surfaceContainerHigh
-                },
-                RoundedCornerShape(8.dp),
+                if (pressed) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.surfaceContainerHigh,
+                androidx.compose.foundation.shape.CircleShape,
             ),
         contentAlignment = Alignment.Center,
     ) {
@@ -965,9 +1050,9 @@ private fun FaceButton(label: String, pressed: Boolean, isCenter: Boolean = fals
     }
 }
 
+/// ショルダー / トリガー。iOS 版に合わせて角丸 8dp の矩形。
 @Composable
 private fun ShoulderChip(label: String, pressed: Boolean) {
-    // 空ラベルのときは視覚的ノイズを避けるため極薄で表示
     val bg = when {
         pressed -> MaterialTheme.colorScheme.primary
         label.isEmpty() -> MaterialTheme.colorScheme.surfaceContainerLowest
@@ -975,9 +1060,9 @@ private fun ShoulderChip(label: String, pressed: Boolean) {
     }
     Box(
         modifier = Modifier
-            .widthIn(min = 48.dp)
+            .widthIn(min = 44.dp)
             .height(22.dp)
-            .background(bg, RoundedCornerShape(5.dp))
+            .background(bg, RoundedCornerShape(8.dp))
             .padding(horizontal = 6.dp),
         contentAlignment = Alignment.Center,
     ) {

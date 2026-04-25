@@ -129,6 +129,13 @@ class GamepadInputManager {
     var btnA: Boolean by mutableStateOf(false); private set
     var btnB: Boolean by mutableStateOf(false); private set
 
+    /// 左スティックの現在の傾倒方向（ビジュアライザ用）。
+    /// Devanagari の varga latch は別途 [devaLsDir] で保持しているため、
+    /// こちらは「いま物理的に倒しているか」のみを反映する。
+    var lStickDir: StickDirection by mutableStateOf(StickDirection.NEUTRAL); private set
+    /// 右スティックの現在の傾倒方向（ビジュアライザ用）。
+    var rStickDir: StickDirection by mutableStateOf(StickDirection.NEUTRAL); private set
+
     enum class ActiveLayer { BASE, LB }
 
     enum class StickDirection { NEUTRAL, UP, DOWN, LEFT, RIGHT }
@@ -465,6 +472,23 @@ class GamepadInputManager {
         if (activeRow != row) activeRow = row
         val newLayer = if (lbNow) ActiveLayer.LB else ActiveLayer.BASE
         if (activeLayer != newLayer) activeLayer = newLayer
+
+        val newLsDir = when {
+            lStickUp -> StickDirection.UP
+            lStickDown -> StickDirection.DOWN
+            lStickLeft -> StickDirection.LEFT
+            lStickRight -> StickDirection.RIGHT
+            else -> StickDirection.NEUTRAL
+        }
+        if (lStickDir != newLsDir) lStickDir = newLsDir
+        val newRsDir = when {
+            rStickUp -> StickDirection.UP
+            rStickDown -> StickDirection.DOWN
+            rStickLeft -> StickDirection.LEFT
+            rStickRight -> StickDirection.RIGHT
+            else -> StickDirection.NEUTRAL
+        }
+        if (rStickDir != newRsDir) rStickDir = newRsDir
 
         // --- Start / Back ボタン ---
         val startEdge = gp.start && !prevStart

@@ -171,6 +171,8 @@ class BubbleView(
                                 compact = compact,
                                 // バブルは VRChat 専用運用なので OSC バッジは冗長
                                 showVrChatBadge = false,
+                                // バブルは横幅が限られるので、LS/RS は従来のテキストヒントにフォールバック
+                                stickStyle = com.gime.android.ui.StickStyle.TEXT,
                             )
                         }
                     }
