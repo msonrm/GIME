@@ -1,6 +1,6 @@
 # Privacy Policy — GIME for Android
 
-*Last updated: April 15, 2026*
+*Last updated: April 25, 2026*
 
 ## Overview
 
@@ -75,12 +75,19 @@ The App does not integrate with any third-party services for data collection
 or transmission. It includes the following local-only third-party
 components:
 
-- AzooKeyKanaKanjiConverter (Apache 2.0) — On-device kana-to-kanji
-  conversion engine
-- KazumaProject/JapaneseKeyboard (MIT) — Vendored Japanese conversion
-  dictionary and engine
-- AndroidX libraries — Standard Android UI / database / lifecycle support
-- kotlinx-serialization-json — Local JSON parsing for dictionary files
+- KazumaProject/JapaneseKeyboard (MIT) — Vendored on-device Japanese
+  kana-to-kanji conversion engine and dictionary (LOUDS trie + N-gram
+  language model)
+- CC-CEDICT (CC BY-SA 4.0) — Source data for the Simplified Chinese
+  vocabulary and pinyin information used by the abbreviated-pinyin lookup
+- libchewing (LGPL v2.1) — Source data for the Traditional Chinese
+  vocabulary and zhuyin information used by the abbreviated-zhuyin lookup
+- AndroidX libraries (Apache 2.0) — Standard Android UI / database /
+  lifecycle support, including Jetpack Compose and Room
+- kotlinx-serialization-json (Apache 2.0) — Local JSON parsing for
+  dictionary files
+- Timber (Apache 2.0) — Local logging facade used by the vendored
+  KazumaProject converter
 
 ## Children's Privacy
 

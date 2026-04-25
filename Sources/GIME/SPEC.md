@@ -2,11 +2,23 @@
 
 ## 概要
 
-GiME (Gamepad IME) は、iPhone / iPad + ゲームパッドで日本語・英語・韓国語・中国語簡体字を入力できる実験的アプリである（Universal build、iPad はエディタ・ビジュアライザとも大きめフォント、iPhone は compact 幅で縮小レイアウト）。
+GiME (Gamepad IME) は、iPhone / iPad + ゲームパッドで多言語テキスト入力を行う実験的アプリである（Universal build、iPad はエディタ・ビジュアライザとも大きめフォント、iPhone は compact 幅で縮小レイアウト）。
 
-- KeyLogicKit の IME エンジン（InputManager, IMETextView）を利用し、かな漢字変換を実現
-- GCController でゲームパッド入力を受け取り、KeyRouter をバイパスして InputManager に直接かなを注入する
+対応モード:
+
+- 日本語（かな漢字変換）
+- 英語（T9 ベース）
+- 韓国語（2ボル式 + 자모 모드）
+- 中国語簡体字（abbreviated pinyin / 简拼）
+- 中国語繁體字（abbreviated zhuyin / 注音首）
+- Devanagari（Sanskrit / Hindi / Marathi / Nepali 等、実験的）
+
+共通する設計方針:
+
+- KeyLogicKit の IME エンジン（InputManager, IMETextView）を利用し、日本語のかな漢字変換を実現
+- GCController でゲームパッド入力を受け取り、KeyRouter をバイパスして InputManager にかなを注入（日本語以外は IME をバイパスし `onDirectInsert` で直接挿入）
 - ソフトウェアキーボードは非表示。フォールバックとしてハードウェアキーボード入力（ローマ字 US 配列）も受け付ける
+- 入力内容を VRChat へ OSC 経由で送信するオプトイン機能を搭載（デフォルト OFF、詳細は `docs/gime-vrchat-osc.md`）
 
 ## アーキテクチャ
 
@@ -18,10 +30,16 @@ GCController
   → GamepadSnapshot（Sendable な値型）
   → GamepadInputManager.handleSnapshot()（@MainActor）
   → モード別処理:
-      日本語:     GamepadResolver → InputManager.appendDirectKana / replaceDirectKana
-      英語:       englishTable → onDirectInsert（IME バイパス）
-      韓国語:     KoreanComposer → onDirectInsert（IME バイパス）
-      中国語簡体: englishTable → PinyinEngine.lookup → CandidatePopup → onDirectInsert
+      日本語:       GamepadResolver → InputManager.appendDirectKana / replaceDirectKana
+      英語:         englishTable → onDirectInsert（IME バイパス）
+      韓国語:       KoreanComposer → onDirectInsert（IME バイパス）
+                    ※ 자모 모드時は合成をバイパスし互換 Jamo を直接 emit
+      中国語簡体:   englishTable → PinyinEngine.lookup → CandidatePopup → onDirectInsert
+      中国語繁體:   注音テーブル → PinyinEngine.lookup（libchewing variant）→ onDirectInsert
+      Devanagari:   GamepadResolver の Devanagari テーブル → DevanagariComposer
+                    → onDirectInsert（halant 明示方式）
+  → VRChat OSC 出力（opt-in）:
+      composing/確定テキスト → VrChatOscOutput → /chatbox/input, /chatbox/typing
 ```
 
 ### UI 構成
@@ -31,42 +49,56 @@ GIMEApp (@main)
   └── ContentView
         ├── IMETextViewRepresentable（KeyLogicKit のエディタ）
         │     └── CandidatePopup（変換候補、selecting 時のみ表示）
-        └── GamepadVisualizerView（接続時のみ表示、画面下部）
+        ├── GamepadVisualizerView（接続時のみ表示、画面下部）
+        └── VrChatSettingsView（シート、OSC 設定 + テスト送信 + デバッグ受信ログ）
 ```
 
 ### 状態管理
 
 - `InputManager`（KeyLogicKit、@Observable）: 変換状態の唯一の管理元
-- `GamepadInputManager`（@Observable）: ゲームパッド接続状態、入力モード、ビジュアライザ用の UI 状態
+- `GamepadInputManager`（@Observable）: ゲームパッド接続状態、入力モード、ビジュアライザ用の UI 状態、자모 모드フラグ
 - `KoreanComposer`（struct、値型）: ハングル音節合成状態（GamepadInputManager が所有）
+- `DevanagariComposer`（struct、値型）: Devanagari の cluster 合成・halant 状態・長母音 post-shift（GamepadInputManager が所有）
 - `PinyinEngine`（@Observable）: abbreviated pinyin 辞書ロード・検索（App.swift が所有、GamepadInputManager に注入）
-- コールバック（`onCursorMove`, `onDeleteBackward`, `onDirectInsert`）で ContentView 側のテキスト操作を実行
+- `VrChatOscOutput` / `VrChatOscSettings`（@Observable）: OSC 設定・送信ステート（App.swift が所有、opt-in）
+- `ZenzaiModelManager`（@Observable）: Zenzai モデルの自動ダウンロード・有効化管理
+- コールバック（`onCursorMove`, `onCursorMoveVertical`, `onDeleteBackward`, `onDirectInsert`, `onShareText`, `onIdleConfirm`）で ContentView 側に UI 操作を委譲
 
 ## ファイル構成
 
 | ファイル | 役割 |
 |----------|------|
-| `App.swift` | @main エントリポイント。ContentView で IMETextViewRepresentable + GamepadVisualizerView を配置。GamepadInputManager の初期化とコールバック接続を行う |
-| `GamepadResolver.swift` | かなテーブル（10行x5段）、拗音/濁点/半濁点マップ、英語 T9 テーブル、韓国語子音テーブル、GamepadAction enum、子音行・母音解決関数。Web 版 `gamepad-kana-table.ts` の Swift 移植 |
-| `GamepadInputManager.swift` | GCController 接続監視、GamepadSnapshot によるボタン状態取得、モード別入力処理（日本語/英語/韓国語/中国語）、アクション実行。入力パイプラインの中核 |
+| `App.swift` | @main エントリポイント。ContentView で IMETextViewRepresentable + GamepadVisualizerView を配置。GamepadInputManager / VrChatOscOutput / ZenzaiModelManager の初期化とコールバック接続を行う |
+| `GamepadResolver.swift` | かなテーブル（10行x5段）、拗音/濁点/半濁点マップ、英語 T9 テーブル、注音テーブル、韓国語子音テーブル、Devanagari varnamala/非 varga/母音テーブル、GamepadAction enum、子音行・母音解決関数 |
+| `GamepadInputManager.swift` | GCController 接続監視、GamepadSnapshot によるボタン状態取得、モード別入力処理（日本語/英語/韓国語/中国語簡体・繁體/Devanagari）、アクション実行、자모 모드管理、LS debounce。入力パイプラインの中核 |
 | `KoreanComposer.swift` | ハングル音節合成エンジン（2ボル式ベース）。Unicode Hangul Syllables ブロックの合成式で文字を生成。子音/母音テーブル、サイクルマップ、複合母音マップを定義 |
+| `DevanagariComposer.swift` | Devanagari cluster 合成エンジン。halant 明示方式で conjunct を構成し、母音記号（matra）・anusvara/chandrabindu・長母音 post-shift を適用。Android 版（Phase A9）の Swift 移植 |
 | `PinyinEngine.swift` | Abbreviated pinyin 検索エンジン。CC-CEDICT + OpenSubtitles 頻度リストから生成した辞書 JSON をロードし、ピンイン頭文字で候補を検索。簡体/繁体の variant 切替に対応 |
-| `GamepadVisualizerView.swift` | SwiftUI ビジュアライザ。モード別の D-pad/フェイスボタンラベル表示、プレビュー文字、操作ガイド。Web 版 `GamepadVisualizer.tsx` の Swift 移植 |
+| `GamepadVisualizerView.swift` | SwiftUI ビジュアライザ。モード別の D-pad/フェイスボタンラベル表示、プレビュー文字、操作ガイド、VRChat OSC バッジ |
+| `ZenzaiModelManager.swift` | Zenzai モデル（GGUF）の HuggingFace からの自動ダウンロード・Application Support への保存・`inputManager.zenzaiWeightURL` への設定を管理 |
+| `SendTextIntent.swift` | App Intent。ショートカットアプリからエディタのテキスト取得を可能にする |
+| `OSC/OscPacket.swift` | OSC 1.0 encode/decode の自前実装（外部依存なし） |
+| `OSC/OscSender.swift` | Network framework の NWConnection を使った UDP 送信 |
+| `OSC/OscReceiver.swift` | NWListener を使ったデバッグ用 UDP 受信 |
+| `OSC/VrChatOscOutput.swift` | chatbox 専用ラッパー。typing indicator / 144 文字制限 / 100ms debounce / カスタム avatar parameter 送信 |
+| `OSC/VrChatOscSettings.swift` | UserDefaults ベースの OSC 設定永続化（@Observable） |
+| `UI/VrChatSettingsView.swift` | OSC 設定画面 + テスト送信 + デバッグ受信ログ |
 
 ## 入力モード
 
-5つのモードを Start ボタンでサイクルする。初期モードは日本語。
+最大 6 モードを Start ボタンでサイクルする。初期モードは日本語。ユーザーは設定画面で使用モードと順序をカスタマイズ可能（`GimeModeSettings` / UserDefaults に永続化）。
 
 ```
-日本語 → 韓国語 → 英語 → 中国語簡体 → 中国語繁體 → 日本語
+日本語 → 韓国語 → 英語 → 中国語簡体 → 中国語繁體 → Devanagari → 日本語
 ```
 
 モード切替時に以下をリセットする:
 - composing 中のテキストを全確定
 - eager output バッファをクリア
 - 英語シフト状態（Shift / SmartCaps / CapsLock）をクリア
-- 韓国語合成状態を確定（commit）
+- 韓国語合成状態を確定（commit）、자모 모드も全解除（Lock 含む）
 - 中国語ピンインバッファ・候補をクリア
+- Devanagari composer を commit、非 varga サブレイヤーを OFF
 
 ## 日本語モード
 
@@ -243,6 +275,27 @@ syllable = 0xAC00 + (onset * 21 + nucleus) * 28 + coda
 | 右スティック →（ㅏ/ㅓ付加） | ㅗ→ㅘ, ㅚ→ㅙ, ㅜ→ㅝ, ㅟ→ㅞ |
 | 右スティック ↓ | 空白→ピリオド（多段タップで差し替え） |
 
+### 자모 모드（子音・母音単体入力）
+
+`ㅋㅋㅋ` のようなチャット表現を入力するための単体 jamo モード。Android 版から逆輸入し、iOS 版でも動作する。
+
+| 操作 | 効果 |
+|------|------|
+| LT 長押し | Jamo Lock（持続、再度長押しで解除） |
+| LT を 2 連続短押し | Smart Jamo（一時、空白・句読点・削除・カーソル・LS・モード切替で自動解除） |
+
+자모 모드中は KoreanComposer による合成をバイパスし、互換 Jamo（U+3131..U+3163）を直接 emit する。
+
+| 操作 | 出力 |
+|------|------|
+| D-pad / LB | 互換 Jamo 子音（U+3131..U+314E） |
+| フェイスボタン | 母音（U+314F..U+3163） |
+| 右スティック → | 直前 jamo の連打（`ㅋㅋㅋ`） |
+| 右スティック ↑ | 直前子音の 평→격→경 サイクル（ㄲㄸㅃㅆㅉ / ㅋㅌㅍㅊ アクセス） |
+| LT 単独短押し | ㅇ 互換 jamo を emit |
+
+자모 모드突入時は composing を確定する。ビジュアライザの LT ラベルは通常=「ㅇ」/ Smart=「자모」/ Lock=「LOCK」。
+
 ## 中国語簡体モード（简拼 = Abbreviated Pinyin）
 
 英語 T9 テーブルを再利用してアルファベットを入力し、abbreviated pinyin（ピンインの頭文字）で候補を検索する。IME をバイパスし `onDirectInsert` で直接テキスト挿入する。
@@ -353,19 +406,79 @@ JSON フォーマット:
 | 読み表示 | ピンイン (ni3 hao3) | 注音 (ㄋㄧˇ ㄏㄠˇ) |
 | バッジ | 简体（赤） | 繁體（オレンジ） |
 
+## Devanagari モード（実験的）
+
+Sanskrit / Hindi / Marathi / Nepali 等を直接打鍵するモード。Android 版 Phase A9 の Swift 移植（`DevanagariComposer.swift` + `GamepadResolver.swift` の Devanagari テーブル群）。
+
+**合成モデル**: ITRANS / Google Hindi IME と同じく conjunct は halant (RT tap で `्`) を明示的に打つ。自動 conjunct はしない（`नम` を `न्म` にしないため）。辞書・追加リソース不要（Unicode 合成のみ）。
+
+### varnamala 時計回り配置
+
+क→च→ट→त→प を時計回りに配置し、LS トグルラッチで varga（子音行）を選択する。左親指で LS と D-pad を同時操作できない物理制約への対応として、LS を direction に flick すると latch し、中立に戻しても保持、同方向再 flick で toggle off、別方向で上書きする。
+
+各 varga 内の 平→気→濁→濁気（क→ख→ग→घ 等）は LS の flick 方向で選択する。母音は a→i→u→e を時計回りに配置。
+
+### 非 varga サブレイヤー（L3 one-shot）
+
+L3（LS click）で非 varga サブレイヤーに enter し、य/र/ल/व/श/ष/स/ह のいずれかを 1 文字 emit すると自動 OFF。cluster 途中で子音クラスを切替える必要がある場合（例: स्त्य = sibilant → varga → semivowel）のために state を保持する。
+
+### 修飾子
+
+| 操作 | 出力 |
+|------|------|
+| RT tap | halant（्） |
+| RT + LS 方向 | カーソル移動 |
+| LT + RT | visarga（ः） |
+| RB 単押し | ओ |
+| LT + RB | nukta（़） |
+| LT + A | ऋ |
+| 右スティック ↑ | anusvara（ं）↔ chandrabindu（ँ） |
+| 右スティック → | 長母音 post-shift（a→ā, e→ai, o→au 等） |
+| 右スティック ↓ | ␣/。/॥ サイクル |
+| 右スティック ← | composer backspace |
+
+設計詳細は `docs/gime-brahmic-expansion-memo.md` を参照。
+
+## VRChat OSC 連携（opt-in）
+
+入力内容を VRChat の chatbox に OSC 経由で送信する機能。デフォルト OFF で、ユーザーが `VrChatSettingsView` で明示的に有効化するまでソケットは open しない。詳細: `docs/gime-vrchat-osc.md`。
+
+### 出力
+
+| OSC アドレス | タイミング | ペイロード |
+|-------------|----------|-----------|
+| `/chatbox/input` | composing / 確定テキスト変化時（debounce 100ms） | `<text> false false`（下書き） |
+| `/chatbox/input` | LS 単押し（idle 時）で確定送信 | `<text> true true`（発話+SE）→ エディタクリア |
+| `/chatbox/typing` | composing 開始/終了エッジ | `true` / `false` |
+| カスタム avatar parameter | composing 開始/終了エッジ（opt-in） | `int` / `float` / `bool`（VRCEmote=7 プリセット同梱） |
+
+### 運用トグル（`VrChatOscSettings`）
+
+| 設定 | 役割 |
+|------|------|
+| `commitOnlyMode` | `/chatbox/input` 下書き抑制（VRChat Mobile で chatbox UI が開くのを回避） |
+| `typingIndicatorEnabled` | `/chatbox/typing` 送信の独立トグル |
+| `customTypingEnabled` | composing 開始/終了エッジで任意の avatar parameter を送る（"考え中ポーズ" 等に活用） |
+
+`Info.plist` に `NSLocalNetworkUsageDescription` を宣言し、初回送信時に iOS が Local Network 許可ダイアログを出す。
+
 ## 共通操作
 
 全モードで共通のボタン割り当て。
 
 | 操作 | アクション |
 |------|-----------|
-| LS 押込み | 確定（composing/selecting 時、文節単位の部分確定対応） / 改行（idle 時） |
-| RS 押込み | キャンセル（composing 破棄） |
-| Back ボタン | スペース挿入（日本語は IME 経由で appendDirectKana、英語/韓国語/中国語は onDirectInsert。中国語はバッファがあれば先頭候補を暗黙確定） |
+| LS 押込み | 確定（composing/selecting 時、文節単位の部分確定対応） / 改行（idle 時）。Devanagari では非 varga サブレイヤーのトグル。中国語で候補表示中は選択候補の確定 |
+| RS 押込み | キャンセル（composing 破棄、中国語ではピンインバッファクリア） |
+| Back ボタン | スペース挿入（日本語は IME 経由で appendDirectKana、その他は onDirectInsert。中国語はバッファがあれば先頭候補を暗黙確定） |
 | Start + Back 同時押し | テキスト共有（composing 確定後、共有シート表示。App Intent 経由でショートカットアプリ連携も可） |
-| 右スティック ← | バックスペース（全モード共通。idle 時は UITextView 側で削除、composing 時は InputManager で削除） |
-| 左スティック ←/→ | カーソル移動（idle 時。英語/韓国語/中国語は常時カーソル移動。中国語で候補表示中は ↑↓ が候補選択に） |
-| Start ボタン | モード切替（日本語 → 韓国語 → 英語 → 中国語簡体 → 中国語繁體 → 日本語）※ Start+Back 同時押し時はスキップ |
+| 右スティック ← | バックスペース（全モード共通。idle 時は UITextView 側で削除、composing 時は InputManager / composer で削除） |
+| 左スティック ←/→ | カーソル移動（idle 時。英語/韓国語/中国語/Devanagari は常時カーソル移動。中国語で候補表示中は ↑↓ が候補選択に） |
+| Start ボタン | モード切替（Start+Back 同時押し時はスキップ）。モード順序は設定画面でカスタマイズ可能 |
+
+### LS debounce
+
+`lsDebounceInterval = 250ms`。DualSense 等の機械式スティックボタンの BT 経由チャタリング対策。立ち下がりエッジから 250ms 以内の再発火を無視する（Android 版と同じ方針）。
 
 ## カメラモード（将来実装計画）
 
@@ -430,26 +543,26 @@ visionOS の ARKit Hand Tracking API にそのまま移植できる。
 - **モードバッジ**: 最上部にカプセル型で表示
   - 青 = 日本語
   - 緑 = EN
-  - 紫 = 한국어
+  - 紫 = 한국어（자모 모드時は「자모」/「LOCK」表示）
   - 赤 = 简体（中国語簡体字モード時、バッジ横にピンインバッファを表示）
-- **D-pad グリッド（左側）**: モードとレイヤー（LB 押下時）に応じたラベルを表示
+  - 橙 = 繁體（中国語繁體字モード時、注音バッファを表示）
+  - 橙 = DEV（Devanagari モード時）
+- **D-pad グリッド（左側）**: モードとレイヤー（LB 押下時、Devanagari は LS latch）に応じたラベルを表示
 - **フェイスボタングリッド（右側）**: モードに応じた文字ラベルを表示
 - **プレビュー文字（中央）**: 現在の子音行名 + 入力候補文字を大きく表示
 - **LT/RT ボタン**: 物理コントローラー準拠の配置（LT=外側、LB=内側、RB=内側、RT=外側）
 - **右スティックグリッド**: コンパクトな十字型でモード別の操作ラベルを表示（入力時ハイライト）
+- **VRChat OSC バッジ**: OSC 有効時に送信状態（Idle / Sending / Error）を表示
 - **ゲームパッド名**: 接続中のコントローラー名を表示
 
 ### モード別の反映
 
 - 英語モード: Shift / SmartCaps / CapsLock 状態がフェイスボタンのラベル（大文字/小文字）と LT ラベル（"SHIFT" / "Caps" / "CAPS"）に反映される
-- 韓国語モード: RT 押下中はフェイスボタンが y系母音ラベルに切り替わる
+- 韓国語モード: RT 押下中はフェイスボタンが y系母音ラベルに切り替わる。자모 모드時は互換 Jamo ラベルに切り替わり、LT ラベルは「ㅇ」/「자모」/「LOCK」を状態に応じて表示
 - 日本語モード: LB 押下で D-pad ラベルが は行〜わ行レイヤーに切り替わる
 - 中国語簡体モード: 英語モードと同じ十字配置ラベル（シフトなし）。LT/RT は「—」（未使用）
-- テキスト操作モード: D-pad/スティック/ボタンのグリッドに代わり、操作ガイドテキスト（D-pad 選択 / L🕹 フォーカス / RB+L🕹 カーソル / RT+L🕹 並替）を表示
-
-### フォーカスオーバーレイ
-
-テキスト操作モード中、フォーカスしている文以外をテキスト背景色（`systemBackground` opacity 0.7）で覆い、対象の文をくり抜き表示で際立たせる。D-pad でスマート選択や文単位選択を開始するとフォーカスは解除される（選択範囲自体が視覚的フィードバックになるため）。フォーカス移動中はスクロール追従のため一時的に全面マスクとなり、スクロール完了後にくり抜きが復帰する。
+- 中国語繁體モード: 注音テーブル配置のラベル
+- Devanagari モード: LS latch 方向で varga を選択するため、D-pad ラベルは latch 状態に応じて書き換わる。非 varga サブレイヤー有効時は य/र/ल/व/श/ष/स/ह の配置に切替
 
 ## エディタ
 
@@ -465,12 +578,15 @@ visionOS の ARKit Hand Tracking API にそのまま移植できる。
 | `chordWindow` | 300ms | eager output の差し替え猶予 |
 | `doubleTapWindow` | 400ms | 多段タップ判定（R🕹↓ 句読点サイクル、LT ダブルタップ） |
 | `stickThreshold` | 0.5 | スティック・トリガーの入力判定閾値 |
-| `longPressThreshold` | 500ms | LT 長押し判定（英語 Caps Lock） |
+| `longPressThreshold` | 500ms | LT 長押し判定（英語 Caps Lock、韓国語 Jamo Lock） |
+| `lsDebounceInterval` | 250ms | LS クリックの立ち下がりエッジ debounce（DualSense チャタリング対策） |
+| OSC debounce | 100ms | `/chatbox/input` 下書き送信間隔 |
+| `MAX_CHATBOX_LEN` | 144 文字 | VRChat chatbox の制限に合わせたトリム |
 
 ## 今後の構想
 
 - **Vision Pro 対応**: visionOS でのゲームパッド入力体験
-- **App Intents 連携**: 全文を他アプリに送信するショートカット
-- **記号パレット**: Select ボタンから呼び出す記号・絵文字選択 UI
-- **設定画面**: モードサイクルのカスタマイズ、chord ウィンドウ調整等
+- **Devanagari の他 Brahmic スクリプトへの拡張**: Bengali / Tamil / Malayalam 等（`docs/gime-brahmic-expansion-memo.md` 参照）
 - **注音フル入力モード**: abbreviated zhuyin では候補が多すぎる場合に、韻母・介母も入力して候補を絞り込めるハイブリッド方式
+- **記号パレット**: Select ボタンから呼び出す記号・絵文字選択 UI
+- **Apple Vision Pro 対応**: 空箱ホールドの発想を visionOS の ARKit Hand Tracking へ移植する構想（下記「カメラモード」参照）
