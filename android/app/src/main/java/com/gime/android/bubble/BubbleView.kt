@@ -153,6 +153,10 @@ class BubbleView(
                             onToggleCompact = {
                                 compact = !compact
                                 bubbleSettings.compactMode = compact
+                                // WindowManager の width は WRAP_CONTENT が
+                                // 動的に追随しないため、明示的に updateViewLayout
+                                // で px を指定して広げ直す。
+                                service.updateBubbleWidth(compact)
                             },
                             onClose = { service.stopBubble() },
                             onDrag = { dx, dy -> applyDrag(dx, dy) },

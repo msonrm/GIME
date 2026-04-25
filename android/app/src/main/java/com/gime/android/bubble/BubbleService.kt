@@ -280,8 +280,14 @@ class BubbleService :
             @Suppress("DEPRECATION")
             WindowManager.LayoutParams.TYPE_PHONE
         }
+        // WindowManager の width WRAP_CONTENT は初回 attach 時にだけ測定される
+        // 挙動が見られた（縦幅は言語切替で動的に追随するのに、横幅は初回の
+        // 日本語モード時の値で固定される）。Compose 内で `Modifier.width(380.dp)`
+        // を指定しても window 自体が広がらず、その外で clip される。
+        // ここで明示的に固定 px を渡すことで、確実に望みの幅で window を作る。
+        val initialWidth = bubbleWidthForCompact(BubbleSettings(this).compactMode)
         val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            initialWidth,
             WindowManager.LayoutParams.WRAP_CONTENT,
             type,
             // 初期は focusable（ゲームパッドキー取得のため）+ 他アプリ操作を妨げない
@@ -311,6 +317,26 @@ class BubbleService :
             Log.e(TAG, "addView failed", t)
             stopSelf()
         }
+    }
+
+    /// compact / 展開トグル時に WindowManager.LayoutParams の width を
+    /// 切り替える。BubbleView から呼ばれる。
+    fun updateBubbleWidth(compact: Boolean) {
+        val params = layoutParams ?: return
+        val view = bubbleView ?: return
+        params.width = bubbleWidthForCompact(compact)
+        val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        try {
+            wm.updateViewLayout(view, params)
+        } catch (_: Throwable) {}
+    }
+
+    /// バブル幅を px で返す。展開時は最も幅を要する韓国語 / Devanagari
+    /// （D-pad 隣にフェイスボタン列を並べる構成）に合わせて 380dp 固定。
+    private fun bubbleWidthForCompact(compact: Boolean): Int {
+        val density = resources.displayMetrics.density
+        val widthDp = if (compact) 260 else 380
+        return (widthDp * density).toInt()
     }
 
     private fun removeOverlay() {
