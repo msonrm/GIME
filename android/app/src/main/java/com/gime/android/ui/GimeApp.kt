@@ -262,9 +262,6 @@ fun GamepadVisualizer(
     /// `N/144` カウンターをバッジ横に出す。0 のときは非表示。バブル側は
     /// タイトルバーで別途カウンターを出すので showVrChatBadge=false の際は隠す。
     chatboxLength: Int = 0,
-    /// LS / RS のビジュアル表現スタイル。バブルのように横幅が限られる文脈では
-    /// [StickStyle.TEXT] を渡して旧来のテキストヒントにフォールバックする。
-    stickStyle: StickStyle = StickStyle.GRAPHIC,
 ) {
     // compact モードでは外枠の背景とパディングを省いて省スペース化。
     // 内部の composing/候補ブロックは個別に背景を持っているので見栄えは崩れない。
@@ -329,7 +326,7 @@ fun GamepadVisualizer(
         // 中国語は即時候補表示でも邪魔にならないよう常に表示する。
         // compact モードでは D-pad を一切表示しない。
         if (!compact && !inputManager.isConverting) {
-            DpadDisplay(inputManager = inputManager, stickStyle = stickStyle)
+            DpadDisplay(inputManager = inputManager)
         }
     }
 }
@@ -512,27 +509,26 @@ private fun dpadDirectionForRow(row: Int): Int = when (row) {
     else -> 0  // neutral (center)
 }
 
-/// LS / RS のビジュアル表現スタイル。バブル表示のように横幅が限られる場面では
-/// [TEXT] でテキスト形式の RightStickHint にフォールバックする。
-enum class StickStyle { GRAPHIC, TEXT }
-
 /// 統一レイアウトのビジュアライザ本体。
 ///
 /// レイアウト（全モード共通、言語切替で揺れない）:
 /// ```
 /// [LT][LB]                                  [RB][RT]   ← 上段: ショルダー＋トリガー
-/// [LS◯]  [D-pad 3×3]    [Face 3×3]   [RS◯]            ← 中段: スティック + クラスタ
-/// (TEXT スタイル時) R: ↑... ↓... ←... →...           ← 下段: 旧式テキストヒント
+/// [LS◯]  [D-pad 5cell]   [Face 4dir]   [RS◯]          ← 中段: スティック + クラスタ
+/// R: ↑... ↓... ←... →...                              ← 下段: RS 方向ヒント（参照用）
 /// ```
 ///
-/// - D-pad / フェイスボタンは中央セルを持たない 3×3（4 方向のみ）
-/// - LS / RS は単一円 + 方向ドット（[StickStyle.GRAPHIC]）または旧式テキスト（[StickStyle.TEXT]）
-/// - LS の Devanagari latch は方向ドットを保持して表現
-/// - ボタン形状: D-pad / ショルダー = 角丸矩形 / フェイスボタン・スティック = 円
+/// - D-pad: 中央セルあり 5 セル。中央セルは LS が neutral のとき face buttons が
+///   出すデフォルト出力を表示するので、ユーザーはどの方向に倒すと何が出るかを
+///   一覧できる。
+/// - フェイスボタン: 中央なし 4 方向（X=左 / Y=上 / B=右 / A=下）。
+/// - LS / RS: 単一円 + 方向ドット。LS の中央ラベルはスティックの「役割」を表示する
+///   （Devanagari の varga 代表子音など）。
+/// - Devanagari の LS latch は中立に戻っても primary 色のドットが残る。
+/// - ボタン形状: D-pad / ショルダー = 角丸矩形 / フェイスボタン・スティック = 円。
 @Composable
 fun DpadDisplay(
     inputManager: GamepadInputManager,
-    stickStyle: StickStyle = StickStyle.GRAPHIC,
 ) {
     val mode = inputManager.currentMode
     val activeRow = inputManager.activeRow
@@ -572,37 +568,23 @@ fun DpadDisplay(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (stickStyle == StickStyle.GRAPHIC) {
-                StickIndicator(
-                    role = StickRole.LEFT,
-                    mode = mode,
-                    inputManager = inputManager,
-                )
-            } else {
-                Spacer(modifier = Modifier.size(0.dp))
-            }
+            StickIndicator(role = StickRole.LEFT, mode = mode, inputManager = inputManager)
             DpadCluster3x3(mode = mode, isLB = isLB, dir = dir, englishShift = englishShift, inputManager = inputManager)
             FaceButtons3x3(faceChars = activeRowFaceChars, inputManager = inputManager)
-            if (stickStyle == StickStyle.GRAPHIC) {
-                StickIndicator(
-                    role = StickRole.RIGHT,
-                    mode = mode,
-                    inputManager = inputManager,
-                )
-            } else {
-                Spacer(modifier = Modifier.size(0.dp))
-            }
+            StickIndicator(role = StickRole.RIGHT, mode = mode, inputManager = inputManager)
         }
 
-        // 下段: TEXT スタイルのみ。バブル等の横幅が限られる文脈で従来の R: ↑... を維持。
-        if (stickStyle == StickStyle.TEXT) {
-            RightStickHint(mode, inputManager)
-        }
+        // 下段: RS 方向ヒント（参照用）。スティック中央にラベルを置かない設計のため、
+        // 「RS のどの方向で何が出るか」はテキストで補完する。
+        RightStickHint(mode, inputManager)
     }
 }
 
-/// D-pad 4 セル（中央なし）。LS が neutral のときの行 0 内容は LS スティックの中心と
-/// フェイスボタンが提示するため、D-pad は方向セルだけで十分。
+/// D-pad 5 セル（中央あり）。中央セルは LS が neutral のとき face buttons が出す
+/// row 0 のチャー、または当該モードの「デフォルト出力」を表示する。
+/// LS が他方向のときも 5 セル全体は変わらず、活性セルだけ primaryContainer で
+/// ハイライトされる仕組みなので、ユーザーは「どの方向に倒すと何が出るか」を
+/// 一覧できる。
 @Composable
 private fun DpadCluster3x3(
     mode: com.gime.android.engine.GamepadInputMode,
@@ -611,13 +593,13 @@ private fun DpadCluster3x3(
     englishShift: Boolean,
     inputManager: GamepadInputManager,
 ) {
-    val cellSize = 40.dp
+    val cellSize = 44.dp
     val offset = if (isLB) 5 else 0
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         ClusterCell(mode, 2 + offset, dir == 2, englishShift, inputManager, cellSize)
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             ClusterCell(mode, 1 + offset, dir == 1, englishShift, inputManager, cellSize)
-            Spacer(modifier = Modifier.size(cellSize))
+            ClusterCell(mode, 0 + offset, dir == 0, englishShift, inputManager, cellSize)
             ClusterCell(mode, 3 + offset, dir == 3, englishShift, inputManager, cellSize)
         }
         ClusterCell(mode, 4 + offset, dir == 4, englishShift, inputManager, cellSize)
@@ -650,29 +632,29 @@ private fun ClusterCell(
     ) {
         if (isSingle) {
             if (chars.isNotEmpty() && chars[0].isNotEmpty()) {
-                Text(chars[0], color = fg, fontSize = 16.sp)
+                Text(chars[0], color = fg, fontSize = 18.sp)
             }
             return@Box
         }
         // 5 文字を十字配置（中央=row[0]、上=row[2]、下=row[4]、左=row[1]、右=row[3]）
         if (chars.size > 2 && chars[2].isNotEmpty()) {
-            Text(chars[2], color = fg, fontSize = 9.sp,
+            Text(chars[2], color = fg, fontSize = 10.sp,
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = 2.dp))
         }
         if (chars.size > 4 && chars[4].isNotEmpty()) {
-            Text(chars[4], color = fg, fontSize = 9.sp,
+            Text(chars[4], color = fg, fontSize = 10.sp,
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp))
         }
         if (chars.size > 1 && chars[1].isNotEmpty()) {
-            Text(chars[1], color = fg, fontSize = 9.sp,
+            Text(chars[1], color = fg, fontSize = 10.sp,
                 modifier = Modifier.align(Alignment.CenterStart).padding(start = 3.dp))
         }
         if (chars.size > 3 && chars[3].isNotEmpty()) {
-            Text(chars[3], color = fg, fontSize = 9.sp,
+            Text(chars[3], color = fg, fontSize = 10.sp,
                 modifier = Modifier.align(Alignment.CenterEnd).padding(end = 3.dp))
         }
         if (chars.isNotEmpty() && chars[0].isNotEmpty()) {
-            Text(chars[0], color = fg, fontSize = 12.sp)
+            Text(chars[0], color = fg, fontSize = 13.sp)
         }
     }
 }
@@ -771,18 +753,24 @@ private fun FaceButtons3x3(
 private enum class StickRole { LEFT, RIGHT }
 
 /// 単一円 + 方向ドット形式のスティックビジュアライザ。
-/// - LS 中心: 現在の row ラベル（あ行 / さ行 等）または Devanagari の varga 名。
-/// - LS ドット: 物理的に倒している方向（中立で消える）。Devanagari は varga latch の
-///   方向にも primary 色のドットを残す（保持表示）。
-/// - LS クリック中は背景を primary に反転。
+///
+/// 中心ラベルは「スティック自体の役割」を表す:
+///   - LS / Devanagari: 現在 latch している varga の代表子音（क/च/ट/त/प）。
+///     「LS は varga を選ぶ」という役割の可視化。
+///   - LS / その他モード: 空（ドット位置と D-pad ハイライトで意図は伝わる）。
+///   - RS: 共通で空（向きヒントは下段のテキストで補完）。
+///
+/// ドット:
+///   - 物理ドット: 物理的に倒している方向（中立で消える）。
+///   - latch ドット: Devanagari の varga 保持を表示（primary 色、neutral でも残る）。
 @Composable
 private fun StickIndicator(
     role: StickRole,
     mode: com.gime.android.engine.GamepadInputMode,
     inputManager: GamepadInputManager,
 ) {
-    val outerSize = 50.dp
-    val dotSize = 10.dp
+    val outerSize = 44.dp
+    val dotSize = 9.dp
     val pressed = if (role == StickRole.LEFT) inputManager.btnLS else inputManager.btnRS
     val dir = if (role == StickRole.LEFT) inputManager.lStickDir else inputManager.rStickDir
     // Devanagari の LS latch を「保持ドット」として表示。物理ドットが neutral でも残る。
@@ -807,10 +795,9 @@ private fun StickIndicator(
         modifier = Modifier.size(outerSize).background(bg, androidx.compose.foundation.shape.CircleShape),
         contentAlignment = Alignment.Center,
     ) {
-        // 中心ラベル: LS は role 表示、RS は単に "RS"
-        val centerLabel = if (role == StickRole.LEFT) stickCenterLabel(mode, inputManager) else "RS"
+        val centerLabel = stickCenterLabel(role, mode, inputManager)
         if (centerLabel.isNotEmpty()) {
-            Text(centerLabel, color = centerFg, fontSize = 10.sp)
+            Text(centerLabel, color = centerFg, fontSize = 12.sp)
         }
         // latch ドット（neutral 以外で primary 色、保持表示）
         if (latchDir != GamepadInputManager.StickDirection.NEUTRAL) {
@@ -848,48 +835,31 @@ private fun BoxScope.StickDot(
     )
 }
 
-/// LS スティック中心の小ラベル。currentMode + activeRow + activeLayer から
-/// 「いまフェイスボタンが何のセットを撃つか」のヒントを返す。
+/// スティック中心の小ラベル。スティックの「役割」だけを表示する。
+/// フェイスボタンが何を出すか / D-pad のどこが選ばれているか、は LS の役割では
+/// ないので表示しない（D-pad 中央セルとハイライトでそちらは可視化済み）。
+///
+/// 現状のラベル方針:
+///   - LS / Devanagari: latch 中の varga 代表子音 (क/च/ट/त/प) または非 varga 印 ✻。
+///     「LS は varga を選ぶ」という役割が一目で分かる。
+///   - LS / その他: 空（向きドットだけで意図は伝わる）
+///   - RS: 共通で空（向きヒントは下段の R: 行で補完）
 private fun stickCenterLabel(
+    role: StickRole,
     mode: com.gime.android.engine.GamepadInputMode,
     m: GamepadInputManager,
 ): String {
-    val row = m.activeRow
-    val isLB = m.activeLayer == GamepadInputManager.ActiveLayer.LB
+    if (role != StickRole.LEFT) return ""
     return when (mode) {
-        com.gime.android.engine.GamepadInputMode.JAPANESE -> {
-            val labels = if (isLB) com.gime.android.engine.DPAD_LABELS_LB
-                         else com.gime.android.engine.DPAD_LABELS_BASE
-            labels.fromRow(row % 5)
-        }
-        com.gime.android.engine.GamepadInputMode.ENGLISH,
-        com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED -> {
-            val labels = if (isLB) com.gime.android.engine.ENGLISH_DPAD_LABELS_LB
-                         else com.gime.android.engine.ENGLISH_DPAD_LABELS_BASE
-            labels.fromRow(row % 5)
-        }
-        com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL -> {
-            // 注音は固定ラベルが無いので row index を表示
-            "row $row"
-        }
-        com.gime.android.engine.GamepadInputMode.KOREAN -> {
-            val labels = if (isLB) com.gime.android.engine.KOREAN_DPAD_LABELS_LB
-                         else com.gime.android.engine.KOREAN_DPAD_LABELS_BASE
-            labels.fromRow(row % 5)
-        }
         com.gime.android.engine.GamepadInputMode.DEVANAGARI -> {
-            // varga 代表子音（क/च/ट/त/प）または非 varga サブレイヤー印
-            if (m.devaNonVargaActive) "*"
+            if (m.devaNonVargaActive) "✻"
             else {
                 val v = com.gime.android.engine.resolveDevaVarga(m.devaLsDir)
                 com.gime.android.engine.DEVA_VARGA_CONSONANTS[v.index][0].toString()
             }
         }
+        else -> ""
     }
-}
-
-private fun com.gime.android.engine.DpadLabels.fromRow(idx: Int): String = when (idx) {
-    0 -> center; 1 -> left; 2 -> up; 3 -> right; 4 -> down; else -> ""
 }
 
 // iOS 版 GamepadVisualizerView.swift と同じラベル規則
