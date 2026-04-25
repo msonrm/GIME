@@ -35,7 +35,6 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.gime.android.engine.GamepadInputMode
 import com.gime.android.input.GamepadInputManager
 import com.gime.android.osc.VrChatOscOutput
 import com.gime.android.osc.VrChatOscSettings
@@ -125,18 +124,15 @@ class BubbleView(
                 // トグル変更時に即時永続化 & 再コンポーズさせる。
                 val bubbleSettings = remember { BubbleSettings(context) }
                 var compact by remember { mutableStateOf(bubbleSettings.compactMode) }
-                // バブルの横幅: compact 時は少し狭く、展開時はビジュアライザが
-                // 収まる幅に。WRAP_CONTENT で自然に高さが縮む。
-                // 韓国語 / Devanagari は D-pad の隣にフェイスボタン列を並べる
-                // ため幅を広めに取らないと右肩のチップが見切れる。
-                val mode = service.inputManager.currentMode
-                val needsExtraWidth = mode == GamepadInputMode.KOREAN ||
-                    mode == GamepadInputMode.DEVANAGARI
-                val bubbleWidth = when {
-                    compact -> 260.dp
-                    needsExtraWidth -> 380.dp
-                    else -> 340.dp
-                }
+                // バブルの横幅。
+                // 当初はモード別に動的変更しようとしたが、WindowManager 側で
+                // WRAP_CONTENT をモード切替時に再測定してくれず幅が変わらなかった
+                // ため、最も幅を要する韓国語 / Devanagari（D-pad 隣にフェイスボタン
+                // 列を並べる構成）に合わせた固定幅にしている。
+                // - compact: D-pad 自体を隠すので狭めで OK
+                // - 展開時: 韓国語 / Devanagari の右肩 (RT/RB) チップが見切れない
+                //   下限が 380dp。多少余裕を持たせて 380dp で固定。
+                val bubbleWidth = if (compact) 260.dp else 380.dp
                 Surface(
                     modifier = Modifier
                         .width(bubbleWidth)
