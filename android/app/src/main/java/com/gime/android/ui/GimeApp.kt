@@ -699,6 +699,9 @@ private fun getCellChars(
         com.gime.android.engine.GamepadInputMode.DEVANAGARI -> {
             // Devanagari は activeRow を使わず、devaLsDir と devaNonVargaActive で
             // 4 方向の 1 文字を直接決める。row パラメータをそのまま方向 index として使う。
+            // 中央セル (row 0 / 5) は LB ショルダー（鼻音）と内容が重複するので空。
+            val idx = row % 5
+            if (idx == 0) return arrayOf("")
             val all: Array<String> = if (inputManager.devaNonVargaActive) {
                 com.gime.android.engine.devaNonVargaDisplayChars(inputManager.btnLT)
             } else {
@@ -707,7 +710,6 @@ private fun getCellChars(
                 )
             }
             // all は [center, left, up, right, down] 順。row index 1..4 が 4 方向に対応。
-            val idx = row.coerceIn(0, 4)
             arrayOf(all.getOrElse(idx) { "" })
         }
     }
@@ -895,51 +897,69 @@ private fun stickDirectionLabel(
     }
 }
 
-/// LS 方向別の役割ラベル。
+/// LS 方向別の役割ラベル。GamepadInputManager の LS 処理ロジックと対応:
 ///
-/// 状態によって意味が切り替わるモードがある:
-///   - 日本語 / 変換中: ↑↓ = 候補サイクル "候"、←→ = 文節フォーカス "文"
-///   - 日本語 / 未変換: ↓ = 変換 "変"、←→ = カーソル "←/→"
-///   - 中国語 / 候補表示中: ↑↓ = 候補サイクル "候"
+///   - 日本語 / 変換中: ↑↓ = 候補サイクル「候」 / ←→ = 文節フォーカス「文」
+///   - 日本語 / 未変換: ↓ = 変換「変」 / ←→ = カーソル移動（バッファ確定後）
+///   - 中国語 / 候補表示中: ↑↓ = 候補サイクル「候」 / ←→ = カーソル
 ///   - Devanagari: 4 方向 = varga 選択（各方向の代表子音 क/च/ट/त）
-///   - その他 / アイドル: 空欄（D-pad のハイライトとドット位置で意図は伝わる）
+///   - 韓国語 / 英語 / 中国語 (候補なし) / 日本語 (アイドル): 4 方向 = カーソル移動
+///
+/// アイドル時のカーソル移動はドット位置が方向と一致して冗長に見えるが、ユーザーが
+/// 「どの方向に倒すと何が起きるか」を確認できる利点を優先して常に表示する。
 private fun lsDirectionLabel(
     dir: GamepadInputManager.StickDirection,
     mode: com.gime.android.engine.GamepadInputMode,
     m: GamepadInputManager,
-): String = when (mode) {
-    com.gime.android.engine.GamepadInputMode.JAPANESE -> when {
-        m.isConverting -> when (dir) {
+): String {
+    if (dir == GamepadInputManager.StickDirection.NEUTRAL) return ""
+    // Devanagari は idle / converting の概念なし、常に varga 選択。
+    if (mode == com.gime.android.engine.GamepadInputMode.DEVANAGARI) {
+        return when (dir) {
+            GamepadInputManager.StickDirection.UP -> "क"
+            GamepadInputManager.StickDirection.RIGHT -> "च"
+            GamepadInputManager.StickDirection.DOWN -> "ट"
+            GamepadInputManager.StickDirection.LEFT -> "त"
+            else -> ""
+        }
+    }
+    // 日本語 / 中国語の特別状態を先に処理
+    if (mode == com.gime.android.engine.GamepadInputMode.JAPANESE && m.isConverting) {
+        return when (dir) {
             GamepadInputManager.StickDirection.UP,
             GamepadInputManager.StickDirection.DOWN -> "候"
             GamepadInputManager.StickDirection.LEFT,
             GamepadInputManager.StickDirection.RIGHT -> "文"
-            GamepadInputManager.StickDirection.NEUTRAL -> ""
+            else -> ""
         }
-        m.hiraganaBuffer.isNotEmpty() -> when (dir) {
+    }
+    if (mode == com.gime.android.engine.GamepadInputMode.JAPANESE && m.hiraganaBuffer.isNotEmpty()) {
+        return when (dir) {
             GamepadInputManager.StickDirection.DOWN -> "変"
             GamepadInputManager.StickDirection.LEFT -> "←"
             GamepadInputManager.StickDirection.RIGHT -> "→"
             else -> ""
         }
+    }
+    val isChinese = mode == com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED ||
+                    mode == com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL
+    if (isChinese && m.pinyinCandidates.isNotEmpty()) {
+        return when (dir) {
+            GamepadInputManager.StickDirection.UP,
+            GamepadInputManager.StickDirection.DOWN -> "候"
+            GamepadInputManager.StickDirection.LEFT -> "←"
+            GamepadInputManager.StickDirection.RIGHT -> "→"
+            else -> ""
+        }
+    }
+    // どのモードでも idle 状態のフォールバック: カーソル移動
+    return when (dir) {
+        GamepadInputManager.StickDirection.UP -> "↑"
+        GamepadInputManager.StickDirection.DOWN -> "↓"
+        GamepadInputManager.StickDirection.LEFT -> "←"
+        GamepadInputManager.StickDirection.RIGHT -> "→"
         else -> ""
     }
-    com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED,
-    com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL -> when {
-        m.pinyinCandidates.isNotEmpty() && (
-            dir == GamepadInputManager.StickDirection.UP ||
-            dir == GamepadInputManager.StickDirection.DOWN
-        ) -> "候"
-        else -> ""
-    }
-    com.gime.android.engine.GamepadInputMode.DEVANAGARI -> when (dir) {
-        GamepadInputManager.StickDirection.UP -> "क"
-        GamepadInputManager.StickDirection.RIGHT -> "च"
-        GamepadInputManager.StickDirection.DOWN -> "ट"
-        GamepadInputManager.StickDirection.LEFT -> "त"
-        GamepadInputManager.StickDirection.NEUTRAL -> ""
-    }
-    else -> ""
 }
 
 /// RS 方向別の役割ラベル。代表 1 字に短縮。
@@ -995,9 +1015,12 @@ private fun rsDirectionLabel(
     }
 }
 
-/// スティック中央セルのラベル（クリック時の動作 + Devanagari の varga）。
-///   - LS クリック: 「確定」（日本語）/ Devanagari の varga 代表子音 / 他は空
-///   - RS クリック: 「取消」相当（共通で「✕」）
+/// スティック中央セルのラベル（クリック時の動作）。
+///   - LS / Devanagari: ✻（非 varga 中）/ varga 代表子音（varga 中）
+///   - LS / 日本語 (変換中・未変換あり): 「決」（確定 / commitConversion or commit hiragana）
+///   - LS / 中国語 (候補表示中): 「決」（候補確定）
+///   - LS / その他 (Japanese idle / Korean / English): 「↵」（改行 / onConfirmOrNewline）
+///   - RS: 「✕」（取消 / 全削除）
 private fun stickCenterLabel(
     role: StickRole,
     mode: com.gime.android.engine.GamepadInputMode,
@@ -1011,8 +1034,12 @@ private fun stickCenterLabel(
                 com.gime.android.engine.DEVA_VARGA_CONSONANTS[v.index][0].toString()
             }
         }
-        com.gime.android.engine.GamepadInputMode.JAPANESE -> "決"  // 確定
-        else -> "✓"
+        com.gime.android.engine.GamepadInputMode.JAPANESE ->
+            if (m.isConverting || m.hiraganaBuffer.isNotEmpty()) "決" else "↵"
+        com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED,
+        com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL ->
+            if (m.pinyinCandidates.isNotEmpty()) "決" else "↵"
+        else -> "↵"
     }
     StickRole.RIGHT -> "✕"  // 取消
 }
