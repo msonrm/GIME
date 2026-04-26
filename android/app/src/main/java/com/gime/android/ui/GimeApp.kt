@@ -14,9 +14,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gime.android.bubble.BubbleService
@@ -616,6 +618,19 @@ private fun ClusterCell(
              else MaterialTheme.colorScheme.onSurfaceVariant
     val isSingle = mode == com.gime.android.engine.GamepadInputMode.KOREAN ||
                    mode == com.gime.android.engine.GamepadInputMode.DEVANAGARI
+    // 上下左右の文字が中央の文字と縦方向に重ならないよう、Text の line metrics を
+    // タイトに（lineHeight = fontSize、includeFontPadding = false）して、
+    // align(TopCenter) / align(BottomCenter) でセル端ぎりぎりに張り付ける。
+    val tightStyle = TextStyle(
+        fontSize = 10.sp,
+        color = fg,
+        lineHeight = 10.sp,
+        platformStyle = PlatformTextStyle(includeFontPadding = false),
+        lineHeightStyle = LineHeightStyle(
+            alignment = LineHeightStyle.Alignment.Center,
+            trim = LineHeightStyle.Trim.Both,
+        ),
+    )
     Box(
         modifier = Modifier
             .size(size)
@@ -628,25 +643,25 @@ private fun ClusterCell(
             }
             return@Box
         }
-        // 5 文字を十字配置（中央=row[0]、上=row[2]、下=row[4]、左=row[1]、右=row[3]）
+        // 5 文字を十字配置（中央=row[0]、上=row[2]、下=row[4]、左=row[1]、右=row[3]）。
+        // 上下は align(TopCenter/BottomCenter) でセル端に張り付け、
+        // padding=0 で物理的に中央セルから離す。
         if (chars.size > 2 && chars[2].isNotEmpty()) {
-            Text(chars[2], color = fg, fontSize = 10.sp,
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 2.dp))
+            Text(chars[2], style = tightStyle, modifier = Modifier.align(Alignment.TopCenter))
         }
         if (chars.size > 4 && chars[4].isNotEmpty()) {
-            Text(chars[4], color = fg, fontSize = 10.sp,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp))
+            Text(chars[4], style = tightStyle, modifier = Modifier.align(Alignment.BottomCenter))
         }
         if (chars.size > 1 && chars[1].isNotEmpty()) {
-            Text(chars[1], color = fg, fontSize = 10.sp,
-                modifier = Modifier.align(Alignment.CenterStart).padding(start = 3.dp))
+            Text(chars[1], style = tightStyle,
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = 2.dp))
         }
         if (chars.size > 3 && chars[3].isNotEmpty()) {
-            Text(chars[3], color = fg, fontSize = 10.sp,
-                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 3.dp))
+            Text(chars[3], style = tightStyle,
+                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 2.dp))
         }
         if (chars.isNotEmpty() && chars[0].isNotEmpty()) {
-            Text(chars[0], color = fg, fontSize = 10.sp)
+            Text(chars[0], style = tightStyle)
         }
     }
 }
@@ -880,16 +895,50 @@ private fun stickDirectionLabel(
     }
 }
 
-/// LS 方向別の役割ラベル。基本は D-pad と同じ「行ナビ」なのでセルは空欄、
-/// 日本語の composing 中の ↓=変換のような専用役割だけ書く。
+/// LS 方向別の役割ラベル。
+///
+/// 状態によって意味が切り替わるモードがある:
+///   - 日本語 / 変換中: ↑↓ = 候補サイクル "候"、←→ = 文節フォーカス "文"
+///   - 日本語 / 未変換: ↓ = 変換 "変"、←→ = カーソル "←/→"
+///   - 中国語 / 候補表示中: ↑↓ = 候補サイクル "候"
+///   - Devanagari: 4 方向 = varga 選択（各方向の代表子音 क/च/ट/त）
+///   - その他 / アイドル: 空欄（D-pad のハイライトとドット位置で意図は伝わる）
 private fun lsDirectionLabel(
     dir: GamepadInputManager.StickDirection,
     mode: com.gime.android.engine.GamepadInputMode,
     m: GamepadInputManager,
 ): String = when (mode) {
-    com.gime.android.engine.GamepadInputMode.JAPANESE ->
-        if (dir == GamepadInputManager.StickDirection.DOWN && m.hiraganaBuffer.isNotEmpty()) "変"
-        else ""
+    com.gime.android.engine.GamepadInputMode.JAPANESE -> when {
+        m.isConverting -> when (dir) {
+            GamepadInputManager.StickDirection.UP,
+            GamepadInputManager.StickDirection.DOWN -> "候"
+            GamepadInputManager.StickDirection.LEFT,
+            GamepadInputManager.StickDirection.RIGHT -> "文"
+            GamepadInputManager.StickDirection.NEUTRAL -> ""
+        }
+        m.hiraganaBuffer.isNotEmpty() -> when (dir) {
+            GamepadInputManager.StickDirection.DOWN -> "変"
+            GamepadInputManager.StickDirection.LEFT -> "←"
+            GamepadInputManager.StickDirection.RIGHT -> "→"
+            else -> ""
+        }
+        else -> ""
+    }
+    com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED,
+    com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL -> when {
+        m.pinyinCandidates.isNotEmpty() && (
+            dir == GamepadInputManager.StickDirection.UP ||
+            dir == GamepadInputManager.StickDirection.DOWN
+        ) -> "候"
+        else -> ""
+    }
+    com.gime.android.engine.GamepadInputMode.DEVANAGARI -> when (dir) {
+        GamepadInputManager.StickDirection.UP -> "क"
+        GamepadInputManager.StickDirection.RIGHT -> "च"
+        GamepadInputManager.StickDirection.DOWN -> "ट"
+        GamepadInputManager.StickDirection.LEFT -> "त"
+        GamepadInputManager.StickDirection.NEUTRAL -> ""
+    }
     else -> ""
 }
 
