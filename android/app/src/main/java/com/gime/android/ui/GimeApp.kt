@@ -304,10 +304,8 @@ fun GamepadVisualizer(
         }
 
         // 候補 / composing 表示は別コンポーザブルに切り出し、IME でも再利用する。
-        // ヒント行は compact モードでは出さない。
         CandidateOverlay(
             inputManager = inputManager,
-            showHints = !compact,
         )
 
         // 未接続時のみ注意表示（接続中は何も表示しない）
@@ -338,13 +336,13 @@ fun GamepadVisualizer(
 /// 個々の候補カードだけが surfaceContainerHigh 背景を持つので、親側の
 /// 背景が透明でも自然に見える。
 ///
-/// - [showHints] false で「LS↓: 変換 / ...」ヒント行を非表示にする（compact 用）。
 /// - 何も表示すべき状態が無ければ縦幅 0 で畳む（オーバーレイが消える）。
+/// - LS / RS の方向別役割はビジュアライザ本体（DpadDisplay）のスティック内部に
+///   描画されるので、ここではテキストヒントを出さない。
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun CandidateOverlay(
     inputManager: GamepadInputManager,
-    showHints: Boolean = true,
 ) {
     val hasPinyin = inputManager.pinyinCandidates.isNotEmpty()
     val hasJapanese = inputManager.hiraganaBuffer.isNotEmpty() || inputManager.isConverting
@@ -486,14 +484,8 @@ fun CandidateOverlay(
                         modifier = Modifier.padding(top = 2.dp),
                     )
                 }
-                if (showHints && !inputManager.isConverting) {
-                    Text(
-                        text = "LS↓: 変換 / LSクリック: 確定 / RSクリック: 取消",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
+                // LS/RS のヒントはビジュアライザのスティック内部に直接描画する
+                // ようになったので、ここのテキスト行は廃止。
             }
             Spacer(modifier = Modifier.height(8.dp))
         }
@@ -563,6 +555,8 @@ fun DpadDisplay(
         }
 
         // 中段: LS | D-pad | Face buttons | RS
+        // LS / RS は内部 3×3 グリッドに方向別ラベルを直接表示するので、
+        // 下段に分離していたテキストヒントは廃止。
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -573,10 +567,6 @@ fun DpadDisplay(
             FaceButtons3x3(faceChars = activeRowFaceChars, inputManager = inputManager)
             StickIndicator(role = StickRole.RIGHT, mode = mode, inputManager = inputManager)
         }
-
-        // 下段: RS 方向ヒント（参照用）。スティック中央にラベルを置かない設計のため、
-        // 「RS のどの方向で何が出るか」はテキストで補完する。
-        RightStickHint(mode, inputManager)
     }
 }
 
@@ -593,7 +583,9 @@ private fun DpadCluster3x3(
     englishShift: Boolean,
     inputManager: GamepadInputManager,
 ) {
-    val cellSize = 44.dp
+    // スティックの 3x3 グリッドと並べたとき IME の利用幅 (~336dp) に収まるよう
+    // 40dp に縮める。文字サイズは 10sp で統一しているので可読性は維持できる。
+    val cellSize = 40.dp
     val offset = if (isLB) 5 else 0
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         ClusterCell(mode, 2 + offset, dir == 2, englishShift, inputManager, cellSize)
@@ -654,7 +646,7 @@ private fun ClusterCell(
                 modifier = Modifier.align(Alignment.CenterEnd).padding(end = 3.dp))
         }
         if (chars.isNotEmpty() && chars[0].isNotEmpty()) {
-            Text(chars[0], color = fg, fontSize = 13.sp)
+            Text(chars[0], color = fg, fontSize = 10.sp)
         }
     }
 }
@@ -737,7 +729,7 @@ private fun FaceButtons3x3(
     inputManager: GamepadInputManager,
 ) {
     val chars = if (faceChars.size >= 5) faceChars else arrayOf("", "", "", "", "")
-    val cellSize = 36.dp
+    val cellSize = 32.dp
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         FaceButton(chars[2], inputManager.btnY, size = cellSize)
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -752,28 +744,28 @@ private fun FaceButtons3x3(
 /// LS / RS の役割識別。center label と方向ドット計算に使う。
 private enum class StickRole { LEFT, RIGHT }
 
-/// 単一円 + 方向ドット形式のスティックビジュアライザ。
+/// iOS 版 `rightStickGrid` 風のスティックビジュアライザ。直径 60dp の円の内部に
+/// 3×3 グリッドを敷き、上下左右にモード別の役割ラベルを直接表示する。
+/// 中央セルはクリック時の動作（確定・取消）を表示し、Devanagari LS のみ
+/// 現在 latch している varga の代表子音 (क/च/ट/त/प) を出す。
 ///
-/// 中心ラベルは「スティック自体の役割」を表す:
-///   - LS / Devanagari: 現在 latch している varga の代表子音（क/च/ट/त/प）。
-///     「LS は varga を選ぶ」という役割の可視化。
-///   - LS / その他モード: 空（ドット位置と D-pad ハイライトで意図は伝わる）。
-///   - RS: 共通で空（向きヒントは下段のテキストで補完）。
-///
-/// ドット:
-///   - 物理ドット: 物理的に倒している方向（中立で消える）。
-///   - latch ドット: Devanagari の varga 保持を表示（primary 色、neutral でも残る）。
+/// 仕様:
+///   - 物理的に倒している方向セルは primaryContainer で活性表示。
+///   - LS クリック中（btnLS=true）は中央セルが primary で活性表示。
+///   - Devanagari の LS latch は物理ドットが neutral に戻っても活性表示が残る。
 @Composable
 private fun StickIndicator(
     role: StickRole,
     mode: com.gime.android.engine.GamepadInputMode,
     inputManager: GamepadInputManager,
 ) {
-    val outerSize = 44.dp
-    val dotSize = 9.dp
+    val outerSize = 60.dp
+    val cellSize = 18.dp
     val pressed = if (role == StickRole.LEFT) inputManager.btnLS else inputManager.btnRS
     val dir = if (role == StickRole.LEFT) inputManager.lStickDir else inputManager.rStickDir
-    // Devanagari の LS latch を「保持ドット」として表示。物理ドットが neutral でも残る。
+    // Devanagari の LS latch を「保持表示」として方向セル活性で示す。物理 dir が
+    // neutral でも latchDir は残るので、ユーザーは LS から指を離した後も varga
+    // 選択状態を視認できる。
     val latchDir: GamepadInputManager.StickDirection = if (
         role == StickRole.LEFT && mode == com.gime.android.engine.GamepadInputMode.DEVANAGARI
     ) {
@@ -786,71 +778,183 @@ private fun StickIndicator(
         }
     } else GamepadInputManager.StickDirection.NEUTRAL
 
-    val bg = if (pressed) MaterialTheme.colorScheme.primary
-             else MaterialTheme.colorScheme.surfaceContainerHigh
-    val centerFg = if (pressed) MaterialTheme.colorScheme.onPrimary
-                   else MaterialTheme.colorScheme.onSurfaceVariant
+    fun cellLabel(d: GamepadInputManager.StickDirection): String =
+        stickDirectionLabel(role, d, mode, inputManager)
+    val centerLabel = stickCenterLabel(role, mode, inputManager)
 
-    Box(
-        modifier = Modifier.size(outerSize).background(bg, androidx.compose.foundation.shape.CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        val centerLabel = stickCenterLabel(role, mode, inputManager)
-        if (centerLabel.isNotEmpty()) {
-            Text(centerLabel, color = centerFg, fontSize = 12.sp)
-        }
-        // latch ドット（neutral 以外で primary 色、保持表示）
-        if (latchDir != GamepadInputManager.StickDirection.NEUTRAL) {
-            StickDot(latchDir, dotSize, isLatch = true)
-        }
-        // 物理ドット（押下方向、neutral で消える）
-        if (dir != GamepadInputManager.StickDirection.NEUTRAL) {
-            StickDot(dir, dotSize, isLatch = false)
-        }
-    }
-}
-
-@Composable
-private fun BoxScope.StickDot(
-    dir: GamepadInputManager.StickDirection,
-    size: androidx.compose.ui.unit.Dp,
-    isLatch: Boolean,
-) {
-    val align: Alignment? = when (dir) {
-        GamepadInputManager.StickDirection.UP -> Alignment.TopCenter
-        GamepadInputManager.StickDirection.DOWN -> Alignment.BottomCenter
-        GamepadInputManager.StickDirection.LEFT -> Alignment.CenterStart
-        GamepadInputManager.StickDirection.RIGHT -> Alignment.CenterEnd
-        GamepadInputManager.StickDirection.NEUTRAL -> null
-    }
-    if (align == null) return
-    val color = if (isLatch) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurface
     Box(
         modifier = Modifier
-            .align(align)
-            .padding(2.dp)
-            .size(size)
-            .background(color, androidx.compose.foundation.shape.CircleShape),
-    )
+            .size(outerSize)
+            .background(
+                MaterialTheme.colorScheme.surfaceContainer,
+                androidx.compose.foundation.shape.CircleShape,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            // 上行: ↑ のみ
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                Spacer(modifier = Modifier.size(cellSize))
+                StickCell(
+                    label = cellLabel(GamepadInputManager.StickDirection.UP),
+                    isActive = dir == GamepadInputManager.StickDirection.UP ||
+                               latchDir == GamepadInputManager.StickDirection.UP,
+                    size = cellSize,
+                )
+                Spacer(modifier = Modifier.size(cellSize))
+            }
+            // 中行: ← center →
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                StickCell(
+                    label = cellLabel(GamepadInputManager.StickDirection.LEFT),
+                    isActive = dir == GamepadInputManager.StickDirection.LEFT ||
+                               latchDir == GamepadInputManager.StickDirection.LEFT,
+                    size = cellSize,
+                )
+                StickCell(
+                    label = centerLabel,
+                    isActive = pressed,
+                    size = cellSize,
+                )
+                StickCell(
+                    label = cellLabel(GamepadInputManager.StickDirection.RIGHT),
+                    isActive = dir == GamepadInputManager.StickDirection.RIGHT ||
+                               latchDir == GamepadInputManager.StickDirection.RIGHT,
+                    size = cellSize,
+                )
+            }
+            // 下行: ↓ のみ
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                Spacer(modifier = Modifier.size(cellSize))
+                StickCell(
+                    label = cellLabel(GamepadInputManager.StickDirection.DOWN),
+                    isActive = dir == GamepadInputManager.StickDirection.DOWN ||
+                               latchDir == GamepadInputManager.StickDirection.DOWN,
+                    size = cellSize,
+                )
+                Spacer(modifier = Modifier.size(cellSize))
+            }
+        }
+    }
 }
 
-/// スティック中心の小ラベル。スティックの「役割」だけを表示する。
-/// フェイスボタンが何を出すか / D-pad のどこが選ばれているか、は LS の役割では
-/// ないので表示しない（D-pad 中央セルとハイライトでそちらは可視化済み）。
-///
-/// 現状のラベル方針:
-///   - LS / Devanagari: latch 中の varga 代表子音 (क/च/ट/त/प) または非 varga 印 ✻。
-///     「LS は varga を選ぶ」という役割が一目で分かる。
-///   - LS / その他: 空（向きドットだけで意図は伝わる）
-///   - RS: 共通で空（向きヒントは下段の R: 行で補完）
+/// スティック内の 1 セル。透明背景でラベルだけ出すと見栄えが寂しいので、活性時は
+/// primaryContainer / primary（クリック中）でハイライトする。
+@Composable
+private fun StickCell(
+    label: String,
+    isActive: Boolean,
+    size: androidx.compose.ui.unit.Dp,
+) {
+    val bg = if (isActive) MaterialTheme.colorScheme.primaryContainer
+             else Color.Transparent
+    val fg = if (isActive) MaterialTheme.colorScheme.onPrimaryContainer
+             else MaterialTheme.colorScheme.onSurfaceVariant
+    Box(
+        modifier = Modifier
+            .size(size)
+            .background(bg, androidx.compose.foundation.shape.CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (label.isNotEmpty()) {
+            Text(label, color = fg, fontSize = 9.sp, maxLines = 1)
+        }
+    }
+}
+
+/// スティックの方向セルに表示するラベル。1 文字に短縮することでセル幅 18dp に収める。
+/// 「、。␣」などの複数文字ヒントは代表 1 字 （、 等）に絞る。
+private fun stickDirectionLabel(
+    role: StickRole,
+    dir: GamepadInputManager.StickDirection,
+    mode: com.gime.android.engine.GamepadInputMode,
+    m: GamepadInputManager,
+): String {
+    if (dir == GamepadInputManager.StickDirection.NEUTRAL) return ""
+    return when (role) {
+        StickRole.LEFT -> lsDirectionLabel(dir, mode, m)
+        StickRole.RIGHT -> rsDirectionLabel(dir, mode, m)
+    }
+}
+
+/// LS 方向別の役割ラベル。基本は D-pad と同じ「行ナビ」なのでセルは空欄、
+/// 日本語の composing 中の ↓=変換のような専用役割だけ書く。
+private fun lsDirectionLabel(
+    dir: GamepadInputManager.StickDirection,
+    mode: com.gime.android.engine.GamepadInputMode,
+    m: GamepadInputManager,
+): String = when (mode) {
+    com.gime.android.engine.GamepadInputMode.JAPANESE ->
+        if (dir == GamepadInputManager.StickDirection.DOWN && m.hiraganaBuffer.isNotEmpty()) "変"
+        else ""
+    else -> ""
+}
+
+/// RS 方向別の役割ラベル。代表 1 字に短縮。
+private fun rsDirectionLabel(
+    dir: GamepadInputManager.StickDirection,
+    mode: com.gime.android.engine.GamepadInputMode,
+    m: GamepadInputManager,
+): String = when (mode) {
+    com.gime.android.engine.GamepadInputMode.JAPANESE -> when (dir) {
+        GamepadInputManager.StickDirection.UP -> "゛"
+        GamepadInputManager.StickDirection.DOWN -> "、"
+        GamepadInputManager.StickDirection.LEFT -> "⌫"
+        GamepadInputManager.StickDirection.RIGHT -> "ー"
+        GamepadInputManager.StickDirection.NEUTRAL -> ""
+    }
+    com.gime.android.engine.GamepadInputMode.ENGLISH -> when (dir) {
+        GamepadInputManager.StickDirection.UP -> "'"
+        GamepadInputManager.StickDirection.DOWN -> "␣"
+        GamepadInputManager.StickDirection.LEFT -> "⌫"
+        GamepadInputManager.StickDirection.RIGHT -> "/"
+        GamepadInputManager.StickDirection.NEUTRAL -> ""
+    }
+    com.gime.android.engine.GamepadInputMode.KOREAN -> when {
+        // 자모 모드では ↑ 평격경 cycle / → 直前 jamo 連打
+        m.koreanJamoLock || m.koreanSmartJamo -> when (dir) {
+            GamepadInputManager.StickDirection.UP -> "ㅋ"  // 平→격→경 cycle 代表
+            GamepadInputManager.StickDirection.DOWN -> "␣"
+            GamepadInputManager.StickDirection.LEFT -> "⌫"
+            GamepadInputManager.StickDirection.RIGHT -> "↻"  // 連打
+            GamepadInputManager.StickDirection.NEUTRAL -> ""
+        }
+        else -> when (dir) {
+            GamepadInputManager.StickDirection.UP -> "ㅋ"
+            GamepadInputManager.StickDirection.DOWN -> "␣"
+            GamepadInputManager.StickDirection.LEFT -> "⌫"
+            GamepadInputManager.StickDirection.RIGHT -> "ㅘ"
+            GamepadInputManager.StickDirection.NEUTRAL -> ""
+        }
+    }
+    com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED,
+    com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL -> when (dir) {
+        GamepadInputManager.StickDirection.DOWN -> "，"
+        GamepadInputManager.StickDirection.LEFT -> "⌫"
+        GamepadInputManager.StickDirection.RIGHT -> "、"
+        else -> ""
+    }
+    com.gime.android.engine.GamepadInputMode.DEVANAGARI -> when (dir) {
+        GamepadInputManager.StickDirection.UP -> "ं"
+        GamepadInputManager.StickDirection.DOWN -> "␣"
+        GamepadInputManager.StickDirection.LEFT -> "⌫"
+        GamepadInputManager.StickDirection.RIGHT -> "ा"
+        GamepadInputManager.StickDirection.NEUTRAL -> ""
+    }
+}
+
+/// スティック中央セルのラベル（クリック時の動作 + Devanagari の varga）。
+///   - LS クリック: 「確定」（日本語）/ Devanagari の varga 代表子音 / 他は空
+///   - RS クリック: 「取消」相当（共通で「✕」）
 private fun stickCenterLabel(
     role: StickRole,
     mode: com.gime.android.engine.GamepadInputMode,
     m: GamepadInputManager,
-): String {
-    if (role != StickRole.LEFT) return ""
-    return when (mode) {
+): String = when (role) {
+    StickRole.LEFT -> when (mode) {
         com.gime.android.engine.GamepadInputMode.DEVANAGARI -> {
             if (m.devaNonVargaActive) "✻"
             else {
@@ -858,8 +962,10 @@ private fun stickCenterLabel(
                 com.gime.android.engine.DEVA_VARGA_CONSONANTS[v.index][0].toString()
             }
         }
-        else -> ""
+        com.gime.android.engine.GamepadInputMode.JAPANESE -> "決"  // 確定
+        else -> "✓"
     }
+    StickRole.RIGHT -> "✕"  // 取消
 }
 
 // iOS 版 GamepadVisualizerView.swift と同じラベル規則
@@ -933,65 +1039,6 @@ private fun rbLabel(
     com.gime.android.engine.GamepadInputMode.DEVANAGARI ->
         if (m.btnLT) "़" else "ओ"
     else -> activeRowFaceChars.getOrElse(0) { "RB" }
-}
-
-/// 右スティック方向のヒント（iOS 版 GamepadVisualizerView.swift と同じ表記）
-@Composable
-private fun RightStickHint(
-    mode: com.gime.android.engine.GamepadInputMode,
-    inputManager: GamepadInputManager,
-) {
-    val upLabel: String
-    val downLabel: String
-    val rightLabel: String
-    when (mode) {
-        com.gime.android.engine.GamepadInputMode.JAPANESE -> {
-            upLabel = "濁点"; downLabel = "、。␣"; rightLabel = "ー"
-        }
-        com.gime.android.engine.GamepadInputMode.ENGLISH -> {
-            upLabel = "'"; downLabel = "␣.,"; rightLabel = "/"
-        }
-        com.gime.android.engine.GamepadInputMode.KOREAN -> {
-            if (inputManager.koreanJamoLock || inputManager.koreanSmartJamo) {
-                // 자모 모드: ↑=平激濃サイクル, →=連打（直前 jamo の繰り返し）
-                upLabel = "ㄱㅋㄲ"; downLabel = "␣."; rightLabel = "연타"
-            } else {
-                upLabel = "ㅋㅌ"; downLabel = "␣."; rightLabel = "ㅘㅝ"
-            }
-        }
-        com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED,
-        com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL -> {
-            upLabel = ""; downLabel = "，。␣"; rightLabel = "、"
-        }
-        com.gime.android.engine.GamepadInputMode.DEVANAGARI -> {
-            upLabel = "ंँ"; downLabel = "␣।"; rightLabel = "ा"
-        }
-    }
-    val leftLabel = "⌫"
-    val hints = listOfNotNull(
-        ("↑" to upLabel).takeIf { upLabel.isNotEmpty() },
-        "↓" to downLabel,
-        "←" to leftLabel,
-        ("→" to rightLabel).takeIf { rightLabel.isNotEmpty() },
-    )
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-    ) {
-        Text(
-            text = "R:",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 10.sp,
-        )
-        hints.forEach { (arrow, label) ->
-            if (label.isEmpty()) return@forEach
-            Text(
-                text = "$arrow $label",
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 10.sp,
-            )
-        }
-    }
 }
 
 /// フェイスボタン。iOS 版に合わせて円形（CircleShape）。

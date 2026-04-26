@@ -134,8 +134,6 @@ class GimeInputView(
                     ) {
                         CandidateOverlay(
                             inputManager = service.inputManager,
-                            // compact モードでは画面省スペース優先、ヒント非表示
-                            showHints = !compact,
                         )
                     }
 
