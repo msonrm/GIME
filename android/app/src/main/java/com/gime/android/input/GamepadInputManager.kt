@@ -806,11 +806,19 @@ class GamepadInputManager {
                     }
                 }
                 currentMode == GamepadInputMode.DEVANAGARI -> {
-                    // LS click = 非 varga サブレイヤーをトグル。
-                    // 注意: composer は commit しない。cluster 途中で子音クラスを
-                    // 切替える必要がある（例: स्त्य = sibilant → varga → semivowel）
-                    // ので、halant 自動挿入を効かせるには state 保持が必須。
-                    devaNonVargaActive = !devaNonVargaActive
+                    if (gp.rtValue > triggerPressThreshold) {
+                        // RT 押下中の LS click = 改行。
+                        // RT+LS 方向はカーソル移動、RT+LS click はその拡張で改行を割当。
+                        // RT 解放時の halant 発火は `devaRtUsedForCursor` で抑止。
+                        onConfirmOrNewline?.invoke()
+                        devaRtUsedForCursor = true
+                    } else {
+                        // 通常: 非 varga サブレイヤーをトグル。
+                        // 注意: composer は commit しない。cluster 途中で子音クラスを
+                        // 切替える必要がある（例: स्त्य = sibilant → varga → semivowel）
+                        // ので、halant 自動挿入を効かせるには state 保持が必須。
+                        devaNonVargaActive = !devaNonVargaActive
+                    }
                 }
                 else -> {
                     // 改行の前に韓国語の合成状態を確定 + Smart Jamo 解除

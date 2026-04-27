@@ -897,24 +897,32 @@ private fun stickDirectionLabel(
     }
 }
 
-/// LS 方向別の役割ラベル。GamepadInputManager の LS 処理ロジックと対応:
+/// LS 方向別の役割ラベル。GamepadInputManager の LS 処理ロジックと対応。
 ///
-///   - 日本語 / 変換中: ↑↓ = 候補サイクル「候」 / ←→ = 文節フォーカス「文」
-///   - 日本語 / 未変換: ↓ = 変換「変」 / ←→ = カーソル移動（バッファ確定後）
-///   - 中国語 / 候補表示中: ↑↓ = 候補サイクル「候」 / ←→ = カーソル
-///   - Devanagari: 4 方向 = varga 選択（各方向の代表子音 क/च/ट/त）
-///   - 韓国語 / 英語 / 中国語 (候補なし) / 日本語 (アイドル): 4 方向 = カーソル移動
+/// カーソル移動と「特殊アクション（候補/文節/変換）」を視覚的に区別するため、
+/// カーソルは細い矢印 (↑↓←→)、特殊アクションは太い矢印 (⇧⇩⇦⇨) を使う。
 ///
-/// アイドル時のカーソル移動はドット位置が方向と一致して冗長に見えるが、ユーザーが
-/// 「どの方向に倒すと何が起きるか」を確認できる利点を優先して常に表示する。
+///   - 日本語 / 変換中: 4 方向 = 候補・文節操作 → ⇧⇩⇦⇨
+///   - 日本語 / 未変換バッファあり: ↓ = 変換 → ⇩、←→ = カーソル → ←/→
+///   - 中国語 / 候補表示中: ↑↓ = 候補サイクル → ⇧/⇩、←→ = カーソル → ←/→
+///   - Devanagari / RT 押下中: 4 方向 = カーソル → ↑↓←→
+///   - Devanagari / 非 varga モード: 方向に意味なし → 空欄
+///   - Devanagari / 通常: 4 方向 = varga 選択（क/च/ट/त）
+///   - その他 (英語 / 韓国語 / アイドル日本語 / 中国語候補なし): 4 方向 = カーソル
 private fun lsDirectionLabel(
     dir: GamepadInputManager.StickDirection,
     mode: com.gime.android.engine.GamepadInputMode,
     m: GamepadInputManager,
 ): String {
     if (dir == GamepadInputManager.StickDirection.NEUTRAL) return ""
-    // Devanagari は idle / converting の概念なし、常に varga 選択。
+
+    // Devanagari は専用のロジック
     if (mode == com.gime.android.engine.GamepadInputMode.DEVANAGARI) {
+        // 非 varga モード中は LS 方向に意味なし（D-pad と LT で子音決定）
+        if (m.devaNonVargaActive) return ""
+        // RT 押下中は LS = カーソル移動
+        if (m.btnRT) return cursorArrowLabel(dir)
+        // 通常: varga 代表子音
         return when (dir) {
             GamepadInputManager.StickDirection.UP -> "क"
             GamepadInputManager.StickDirection.RIGHT -> "च"
@@ -923,43 +931,44 @@ private fun lsDirectionLabel(
             else -> ""
         }
     }
-    // 日本語 / 中国語の特別状態を先に処理
+
+    // 日本語 / 変換中: 全方向が特殊アクション → 太い矢印
     if (mode == com.gime.android.engine.GamepadInputMode.JAPANESE && m.isConverting) {
         return when (dir) {
-            GamepadInputManager.StickDirection.UP,
-            GamepadInputManager.StickDirection.DOWN -> "候"
-            GamepadInputManager.StickDirection.LEFT,
-            GamepadInputManager.StickDirection.RIGHT -> "文"
+            GamepadInputManager.StickDirection.UP -> "⇧"
+            GamepadInputManager.StickDirection.DOWN -> "⇩"
+            GamepadInputManager.StickDirection.LEFT -> "⇦"
+            GamepadInputManager.StickDirection.RIGHT -> "⇨"
             else -> ""
         }
     }
+    // 日本語 / 未変換バッファあり: ↓ だけ特殊（変換）、他はカーソル
     if (mode == com.gime.android.engine.GamepadInputMode.JAPANESE && m.hiraganaBuffer.isNotEmpty()) {
         return when (dir) {
-            GamepadInputManager.StickDirection.DOWN -> "変"
-            GamepadInputManager.StickDirection.LEFT -> "←"
-            GamepadInputManager.StickDirection.RIGHT -> "→"
-            else -> ""
+            GamepadInputManager.StickDirection.DOWN -> "⇩"
+            else -> cursorArrowLabel(dir)
         }
     }
+    // 中国語 / 候補表示中: ↑↓ だけ特殊（候補サイクル）、←→ はカーソル
     val isChinese = mode == com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED ||
                     mode == com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL
     if (isChinese && m.pinyinCandidates.isNotEmpty()) {
         return when (dir) {
-            GamepadInputManager.StickDirection.UP,
-            GamepadInputManager.StickDirection.DOWN -> "候"
-            GamepadInputManager.StickDirection.LEFT -> "←"
-            GamepadInputManager.StickDirection.RIGHT -> "→"
-            else -> ""
+            GamepadInputManager.StickDirection.UP -> "⇧"
+            GamepadInputManager.StickDirection.DOWN -> "⇩"
+            else -> cursorArrowLabel(dir)
         }
     }
-    // どのモードでも idle 状態のフォールバック: カーソル移動
-    return when (dir) {
-        GamepadInputManager.StickDirection.UP -> "↑"
-        GamepadInputManager.StickDirection.DOWN -> "↓"
-        GamepadInputManager.StickDirection.LEFT -> "←"
-        GamepadInputManager.StickDirection.RIGHT -> "→"
-        else -> ""
-    }
+    // フォールバック: カーソル移動
+    return cursorArrowLabel(dir)
+}
+
+private fun cursorArrowLabel(dir: GamepadInputManager.StickDirection): String = when (dir) {
+    GamepadInputManager.StickDirection.UP -> "↑"
+    GamepadInputManager.StickDirection.DOWN -> "↓"
+    GamepadInputManager.StickDirection.LEFT -> "←"
+    GamepadInputManager.StickDirection.RIGHT -> "→"
+    else -> ""
 }
 
 /// RS 方向別の役割ラベル。代表 1 字に短縮。
@@ -1017,8 +1026,8 @@ private fun rsDirectionLabel(
 
 /// スティック中央セルのラベル（クリック時の動作）。
 ///   - LS / Devanagari: ✻（非 varga 中）/ varga 代表子音（varga 中）
-///   - LS / 日本語 (変換中・未変換あり): 「決」（確定 / commitConversion or commit hiragana）
-///   - LS / 中国語 (候補表示中): 「決」（候補確定）
+///   - LS / 日本語 (変換中・未変換あり): 「✓」（確定 / commitConversion or commit hiragana）
+///   - LS / 中国語 (候補表示中): 「✓」（候補確定）
 ///   - LS / その他 (Japanese idle / Korean / English): 「↵」（改行 / onConfirmOrNewline）
 ///   - RS: 「✕」（取消 / 全削除）
 private fun stickCenterLabel(
@@ -1027,18 +1036,22 @@ private fun stickCenterLabel(
     m: GamepadInputManager,
 ): String = when (role) {
     StickRole.LEFT -> when (mode) {
-        com.gime.android.engine.GamepadInputMode.DEVANAGARI -> {
-            if (m.devaNonVargaActive) "✻"
-            else {
+        com.gime.android.engine.GamepadInputMode.DEVANAGARI -> when {
+            // RT 押下中: LS click = 改行
+            m.btnRT -> "↵"
+            // 非 varga モード: ✻
+            m.devaNonVargaActive -> "✻"
+            // 通常: 現在 latch している varga 代表子音
+            else -> {
                 val v = com.gime.android.engine.resolveDevaVarga(m.devaLsDir)
                 com.gime.android.engine.DEVA_VARGA_CONSONANTS[v.index][0].toString()
             }
         }
         com.gime.android.engine.GamepadInputMode.JAPANESE ->
-            if (m.isConverting || m.hiraganaBuffer.isNotEmpty()) "決" else "↵"
+            if (m.isConverting || m.hiraganaBuffer.isNotEmpty()) "✓" else "↵"
         com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED,
         com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL ->
-            if (m.pinyinCandidates.isNotEmpty()) "決" else "↵"
+            if (m.pinyinCandidates.isNotEmpty()) "✓" else "↵"
         else -> "↵"
     }
     StickRole.RIGHT -> "✕"  // 取消
@@ -1144,13 +1157,13 @@ private fun FaceButton(
 }
 
 /// ショルダー / トリガー。iOS 版に合わせて角丸 8dp の矩形。
+/// 空ラベル（中国語 LT 等の機能なしボタン）も他のチップと同じ背景色にして、
+/// レイアウトを揃える（旧: surfaceContainerLowest で薄く表示していたが、
+/// かえってレイアウトの一貫性が崩れるとの指摘で統一）。
 @Composable
 private fun ShoulderChip(label: String, pressed: Boolean) {
-    val bg = when {
-        pressed -> MaterialTheme.colorScheme.primary
-        label.isEmpty() -> MaterialTheme.colorScheme.surfaceContainerLowest
-        else -> MaterialTheme.colorScheme.surfaceContainerHigh
-    }
+    val bg = if (pressed) MaterialTheme.colorScheme.primary
+             else MaterialTheme.colorScheme.surfaceContainerHigh
     Box(
         modifier = Modifier
             .widthIn(min = 44.dp)
