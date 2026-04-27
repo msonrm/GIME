@@ -503,6 +503,24 @@ private fun dpadDirectionForRow(row: Int): Int = when (row) {
     else -> 0  // neutral (center)
 }
 
+/// フォント本来の ascent/descent 余白を削除し、line height をフォントサイズと
+/// 一致させた「縦方向のズレが最小化された」テキストスタイル。
+/// ボタンのラベル文字列など、Box の Center に置いたときに上下対称に見えるように
+/// 全ボタン系（D-pad / フェイス / スティック / ショルダー）で共通利用する。
+private fun tightTextStyle(
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    color: Color,
+): TextStyle = TextStyle(
+    fontSize = fontSize,
+    color = color,
+    lineHeight = fontSize,
+    platformStyle = PlatformTextStyle(includeFontPadding = false),
+    lineHeightStyle = LineHeightStyle(
+        alignment = LineHeightStyle.Alignment.Center,
+        trim = LineHeightStyle.Trim.Both,
+    ),
+)
+
 /// 統一レイアウトのビジュアライザ本体。
 ///
 /// レイアウト（全モード共通、言語切替で揺れない）:
@@ -618,19 +636,8 @@ private fun ClusterCell(
              else MaterialTheme.colorScheme.onSurfaceVariant
     val isSingle = mode == com.gime.android.engine.GamepadInputMode.KOREAN ||
                    mode == com.gime.android.engine.GamepadInputMode.DEVANAGARI
-    // 上下左右の文字が中央の文字と縦方向に重ならないよう、Text の line metrics を
-    // タイトに（lineHeight = fontSize、includeFontPadding = false）して、
-    // align(TopCenter) / align(BottomCenter) でセル端ぎりぎりに張り付ける。
-    val tightStyle = TextStyle(
-        fontSize = 10.sp,
-        color = fg,
-        lineHeight = 10.sp,
-        platformStyle = PlatformTextStyle(includeFontPadding = false),
-        lineHeightStyle = LineHeightStyle(
-            alignment = LineHeightStyle.Alignment.Center,
-            trim = LineHeightStyle.Trim.Both,
-        ),
-    )
+    val tightStyle = tightTextStyle(fontSize = 10.sp, color = fg)
+    val bigTightStyle = tightTextStyle(fontSize = 18.sp, color = fg)
     Box(
         modifier = Modifier
             .size(size)
@@ -639,7 +646,7 @@ private fun ClusterCell(
     ) {
         if (isSingle) {
             if (chars.isNotEmpty() && chars[0].isNotEmpty()) {
-                Text(chars[0], color = fg, fontSize = 18.sp)
+                Text(chars[0], style = bigTightStyle)
             }
             return@Box
         }
@@ -888,7 +895,7 @@ private fun StickCell(
         contentAlignment = Alignment.Center,
     ) {
         if (label.isNotEmpty()) {
-            Text(label, color = fg, fontSize = 9.sp, maxLines = 1)
+            Text(label, style = tightTextStyle(fontSize = 9.sp, color = fg), maxLines = 1)
         }
     }
 }
@@ -1149,6 +1156,8 @@ private fun FaceButton(
     pressed: Boolean,
     size: androidx.compose.ui.unit.Dp = 30.dp,
 ) {
+    val fg = if (pressed) MaterialTheme.colorScheme.onPrimary
+             else MaterialTheme.colorScheme.onSurface
     Box(
         modifier = Modifier
             .size(size)
@@ -1159,12 +1168,7 @@ private fun FaceButton(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = label,
-            color = if (pressed) MaterialTheme.colorScheme.onPrimary
-                    else MaterialTheme.colorScheme.onSurface,
-            fontSize = 12.sp,
-        )
+        Text(text = label, style = tightTextStyle(fontSize = 12.sp, color = fg))
     }
 }
 
@@ -1176,6 +1180,8 @@ private fun FaceButton(
 private fun ShoulderChip(label: String, pressed: Boolean) {
     val bg = if (pressed) MaterialTheme.colorScheme.primary
              else MaterialTheme.colorScheme.surfaceContainerHigh
+    val fg = if (pressed) MaterialTheme.colorScheme.onPrimary
+             else MaterialTheme.colorScheme.onSurface
     Box(
         modifier = Modifier
             .widthIn(min = 44.dp)
@@ -1184,12 +1190,7 @@ private fun ShoulderChip(label: String, pressed: Boolean) {
             .padding(horizontal = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = label,
-            color = if (pressed) MaterialTheme.colorScheme.onPrimary
-                    else MaterialTheme.colorScheme.onSurface,
-            fontSize = 11.sp,
-        )
+        Text(text = label, style = tightTextStyle(fontSize = 11.sp, color = fg))
     }
 }
 
