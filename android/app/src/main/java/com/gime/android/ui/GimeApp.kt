@@ -779,12 +779,23 @@ private fun StickIndicator(
     val outerSize = 60.dp
     val cellSize = 18.dp
     val pressed = if (role == StickRole.LEFT) inputManager.btnLS else inputManager.btnRS
-    val dir = if (role == StickRole.LEFT) inputManager.lStickDir else inputManager.rStickDir
+    // Devanagari の非 varga モード中は LS 方向に意味がないため、物理 dir も
+    // latch 表示も抑止する（方向セルが無意味にハイライトされるのを防ぐ）。
+    val suppressLsDirection = role == StickRole.LEFT &&
+        mode == com.gime.android.engine.GamepadInputMode.DEVANAGARI &&
+        inputManager.devaNonVargaActive
+    val dir = when {
+        suppressLsDirection -> GamepadInputManager.StickDirection.NEUTRAL
+        role == StickRole.LEFT -> inputManager.lStickDir
+        else -> inputManager.rStickDir
+    }
     // Devanagari の LS latch を「保持表示」として方向セル活性で示す。物理 dir が
     // neutral でも latchDir は残るので、ユーザーは LS から指を離した後も varga
-    // 選択状態を視認できる。
+    // 選択状態を視認できる。非 varga モード中は latch 表示も抑止。
     val latchDir: GamepadInputManager.StickDirection = if (
-        role == StickRole.LEFT && mode == com.gime.android.engine.GamepadInputMode.DEVANAGARI
+        role == StickRole.LEFT &&
+        mode == com.gime.android.engine.GamepadInputMode.DEVANAGARI &&
+        !inputManager.devaNonVargaActive
     ) {
         when (inputManager.devaLsDir) {
             com.gime.android.engine.DevaLsDirection.UP -> GamepadInputManager.StickDirection.UP
@@ -803,7 +814,7 @@ private fun StickIndicator(
         modifier = Modifier
             .size(outerSize)
             .background(
-                MaterialTheme.colorScheme.surfaceContainer,
+                MaterialTheme.colorScheme.surfaceContainerHigh,
                 androidx.compose.foundation.shape.CircleShape,
             ),
         contentAlignment = Alignment.Center,
@@ -949,14 +960,15 @@ private fun lsDirectionLabel(
             else -> cursorArrowLabel(dir)
         }
     }
-    // 中国語 / 候補表示中: ↑↓ だけ特殊（候補サイクル）、←→ はカーソル
+    // 中国語 / 候補表示中: ↑↓ だけ特殊（候補サイクル）。
+    // ←→ は LS では未使用（カーソル移動も発火しない）ので空欄。
     val isChinese = mode == com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED ||
                     mode == com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL
     if (isChinese && m.pinyinCandidates.isNotEmpty()) {
         return when (dir) {
             GamepadInputManager.StickDirection.UP -> "⇧"
             GamepadInputManager.StickDirection.DOWN -> "⇩"
-            else -> cursorArrowLabel(dir)
+            else -> ""
         }
     }
     // フォールバック: カーソル移動
