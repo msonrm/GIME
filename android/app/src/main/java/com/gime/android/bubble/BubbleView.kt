@@ -363,8 +363,10 @@ private fun ModeChip(label: String) {
     ) {
         Text(
             text = label,
-            color = MaterialTheme.colorScheme.onPrimary,
-            fontSize = 11.sp,
+            style = com.gime.android.ui.tightTextStyle(
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onPrimary,
+            ),
         )
     }
 }

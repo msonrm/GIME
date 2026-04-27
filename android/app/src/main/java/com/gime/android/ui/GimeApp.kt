@@ -506,8 +506,9 @@ private fun dpadDirectionForRow(row: Int): Int = when (row) {
 /// フォント本来の ascent/descent 余白を削除し、line height をフォントサイズと
 /// 一致させた「縦方向のズレが最小化された」テキストスタイル。
 /// ボタンのラベル文字列など、Box の Center に置いたときに上下対称に見えるように
-/// 全ボタン系（D-pad / フェイス / スティック / ショルダー）で共通利用する。
-private fun tightTextStyle(
+/// 全ボタン系（D-pad / フェイス / スティック / ショルダー / 言語ラベル等）で
+/// 共通利用する。`internal` で BubbleView / GimeInputView からも参照可能。
+internal fun tightTextStyle(
     fontSize: androidx.compose.ui.unit.TextUnit,
     color: Color,
 ): TextStyle = TextStyle(
@@ -1223,8 +1224,9 @@ fun Badge(
         modifier = Modifier
             .background(color, RoundedCornerShape(12.dp))
             .padding(horizontal = 12.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        Text(text = text, color = contentColor, fontSize = 12.sp)
+        Text(text = text, style = tightTextStyle(fontSize = 12.sp, color = contentColor))
     }
 }
 
