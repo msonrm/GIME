@@ -21,25 +21,52 @@ struct GamepadVisualizerView: View {
         horizontalSizeClass == .compact
     }
 
-    /// 3 カラム HStack の spacing
-    private var columnSpacing: CGFloat {
-        isCompactWidth ? 8 : 24
+    /// レイアウト寸法。iPad (regular) と iPhone (compact) で別セット。
+    /// 中段の合計幅 = stickOuter + spacing + dpadCell*3 + spacing + faceCell*3 + spacing + stickOuter
+    /// 親ビュー側の余白 (`.padding([.horizontal, .top])` ≈ 16pt × 2) と本体の outerPadding
+    /// (compact 8pt × 2) を含めて iPhone SE (375pt) でも収まるよう compact を絞っている。
+    /// compact: 44 + 4 + 38*3 + 4 + 38*3 + 4 + 44 = 328pt + padding 16+32 = 376pt → ギリギリ。
+    /// regular: 60 + 24 + 52*3 + 24 + 48*3 + 24 + 60 = 492pt → iPad では余裕。
+    private struct VizMetrics {
+        let dpadCell: CGFloat
+        let faceCell: CGFloat
+        let stickOuter: CGFloat
+        let stickCell: CGFloat
+        let stickGap: CGFloat
+        let shoulderMinW: CGFloat
+        let shoulderMinH: CGFloat
+        let columnSpacing: CGFloat
+        let outerPadding: CGFloat
+        let dpadFontSize: CGFloat
+        let faceFontSize: CGFloat
+        let shoulderFontSize: CGFloat
+        let shoulderNameFontSize: CGFloat
+        let stickFontSize: CGFloat
+
+        static let regular = VizMetrics(
+            dpadCell: 52, faceCell: 48,
+            stickOuter: 60, stickCell: 18, stickGap: 2,
+            shoulderMinW: 52, shoulderMinH: 44,
+            columnSpacing: 24, outerPadding: 16,
+            dpadFontSize: 13, faceFontSize: 16,
+            shoulderFontSize: 16, shoulderNameFontSize: 10,
+            stickFontSize: 9
+        )
+        static let compact = VizMetrics(
+            dpadCell: 38, faceCell: 38,
+            stickOuter: 44, stickCell: 13, stickGap: 1,
+            shoulderMinW: 42, shoulderMinH: 36,
+            columnSpacing: 4, outerPadding: 6,
+            dpadFontSize: 11, faceFontSize: 13,
+            shoulderFontSize: 12, shoulderNameFontSize: 9,
+            stickFontSize: 8
+        )
     }
 
-    /// 外枠 padding
-    private var outerPadding: CGFloat {
-        isCompactWidth ? 8 : 16
-    }
+    private var m: VizMetrics { isCompactWidth ? .compact : .regular }
 
-    /// 中央プレビュー文字サイズ
-    private var previewFontSize: CGFloat {
-        isCompactWidth ? 40 : 56
-    }
-
-    /// 中央プレビューの最小幅
-    private var previewMinWidth: CGFloat {
-        isCompactWidth ? 50 : 70
-    }
+    /// スティックの役割（左 / 右）。レイアウト・ラベル解決の分岐に使用。
+    private enum StickRole { case left, right }
 
     private var mode: GamepadInputMode { gamepadInput.currentMode }
 
@@ -96,31 +123,6 @@ struct GamepadVisualizerView: View {
             // RB の表示は rbLabel で個別に上書きするため、ここでは a 位置に अ を置く。
             let aChar = isLTPressed ? "ऋ" : "उ"  // A (u-slot) は LT で ऋ
             return ["अ", "ए", "अ", "इ", aChar]
-        }
-    }
-
-    private var currentRowNames: [String] {
-        switch mode {
-        case .japanese: return rowNames
-        case .english, .chineseSimplified: return englishRowNames
-        case .chineseTraditional: return zhuyinRowNames
-        case .korean: return koreanRowNames
-        case .devanagari:
-            // Devanagari は row ベースではなく LS latch ベース。
-            // プレビュー上の行名として「現在の varga 名」を返す（全要素同じ）。
-            let label: String
-            if gamepadInput.devaNonVargaActive {
-                label = isLTPressed ? "श ष स ह" : "य र ल व"
-            } else {
-                switch gamepadInput.devaLsDir {
-                case .up:      label = "कवर्ग"
-                case .right:   label = "चवर्ग"
-                case .down:    label = "टवर्ग"
-                case .left:    label = "तवर्ग"
-                case .neutral: label = "पवर्ग"
-                }
-            }
-            return Array(repeating: label, count: 10)
         }
     }
 
@@ -312,9 +314,15 @@ struct GamepadVisualizerView: View {
             .padding(.horizontal, 4)
 
             if !isCollapsed {
-                HStack(spacing: columnSpacing) {
-                    VStack(spacing: 8) {
-                        HStack(spacing: 6) {
+                // Android 版と同じ 2 段構造:
+                //  上段: [LT][LB] ─── [RB][RT]
+                //  中段: [LS] [D-pad] [Face] [RS]
+                // 中央プレビュー（旧）と下段テキストヒント（旧）は廃止。
+                // LS/RS は内部 3×3 グリッドに方向別ラベルを直接表示する。
+                VStack(spacing: 6) {
+                    // 上段: ショルダー
+                    HStack(alignment: .center) {
+                        HStack(spacing: 4) {
                             shoulderButton(
                                 char: ltLabel,
                                 name: "LT",
@@ -326,25 +334,8 @@ struct GamepadVisualizerView: View {
                                 pressed: gamepadInput.pressedButtons.contains("LB")
                             )
                         }
-                        dpadGrid
-                    }
-
-                    // 中央: プレビュー
-                    VStack(spacing: 4) {
-                        Text(currentRowNames[gamepadInput.activeRow])
-                            .font(.system(size: 14))
-                            .foregroundStyle(.secondary)
-                        Text(gamepadInput.previewChar ?? "　")
-                            .font(.system(size: previewFontSize, weight: .bold))
-                            .foregroundStyle(gamepadInput.previewChar != nil ? Color.accentColor : Color(.systemGray4))
-                            .frame(minWidth: previewMinWidth)
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("プレビュー: \(gamepadInput.previewChar ?? "なし")、行: \(currentRowNames[gamepadInput.activeRow])")
-
-                    // 右側: RB/RT + フェイスボタン（RB=内側, RT=外側）
-                    VStack(spacing: 8) {
-                        HStack(spacing: 6) {
+                        Spacer()
+                        HStack(spacing: 4) {
                             shoulderButton(
                                 char: rbLabel,
                                 name: "RB",
@@ -356,14 +347,21 @@ struct GamepadVisualizerView: View {
                                 pressed: gamepadInput.pressedButtons.contains("RT")
                             )
                         }
-                        faceButtonGrid
                     }
-                    // 右スティック（コンパクト十字型）
-                    rightStickGrid
-                        .accessibilityElement(children: .contain)
-                        .accessibilityLabel("右スティック")
+
+                    // 中段: LS | D-pad | Face | RS（等幅で中央寄せ）
+                    HStack(alignment: .center, spacing: m.columnSpacing) {
+                        stickGrid(role: .left)
+                            .accessibilityElement(children: .contain)
+                            .accessibilityLabel("左スティック")
+                        dpadGrid
+                        faceButtonGrid
+                        stickGrid(role: .right)
+                            .accessibilityElement(children: .contain)
+                            .accessibilityLabel("右スティック")
+                    }
                 }
-                .padding(outerPadding)
+                .padding(m.outerPadding)
                 .background(.background, in: RoundedRectangle(cornerRadius: 16))
             }
         }
@@ -413,16 +411,17 @@ struct GamepadVisualizerView: View {
     private var dpadGrid: some View {
         let useCrossLayout = mode == .english || mode == .chineseSimplified || mode == .chineseTraditional
         let offset = gamepadInput.activeLayer == .lb ? 5 : 0
+        let cell = m.dpadCell
 
         return Grid(horizontalSpacing: 4, verticalSpacing: 4) {
             GridRow {
-                Color.clear.frame(width: 52, height: 52)
+                Color.clear.frame(width: cell, height: cell)
                 if useCrossLayout {
                     dpadButtonCross(chars: crossCharsForCurrentMode(row: 2 + offset), pressed: gamepadInput.pressedButtons.contains("dpadUp"))
                 } else {
                     dpadButton(label: dpad.up, pressed: gamepadInput.pressedButtons.contains("dpadUp"))
                 }
-                Color.clear.frame(width: 52, height: 52)
+                Color.clear.frame(width: cell, height: cell)
             }
             GridRow {
                 if useCrossLayout {
@@ -435,9 +434,9 @@ struct GamepadVisualizerView: View {
                         .opacity(0.5)
                 } else {
                     Text(dpad.center)
-                        .font(.system(size: 13))
+                        .font(.system(size: m.dpadFontSize))
                         .foregroundStyle(.quaternary)
-                        .frame(width: 52, height: 52)
+                        .frame(width: cell, height: cell)
                         .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 8))
                 }
                 if useCrossLayout {
@@ -447,13 +446,13 @@ struct GamepadVisualizerView: View {
                 }
             }
             GridRow {
-                Color.clear.frame(width: 52, height: 52)
+                Color.clear.frame(width: cell, height: cell)
                 if useCrossLayout {
                     dpadButtonCross(chars: crossCharsForCurrentMode(row: 4 + offset), pressed: gamepadInput.pressedButtons.contains("dpadDown"))
                 } else {
                     dpadButton(label: dpad.down, pressed: gamepadInput.pressedButtons.contains("dpadDown"))
                 }
-                Color.clear.frame(width: 52, height: 52)
+                Color.clear.frame(width: cell, height: cell)
             }
         }
     }
@@ -461,51 +460,248 @@ struct GamepadVisualizerView: View {
     // MARK: - フェイスボタングリッド
 
     private var faceButtonGrid: some View {
-        Grid(horizontalSpacing: 4, verticalSpacing: 4) {
+        let cell = m.faceCell
+        return Grid(horizontalSpacing: 4, verticalSpacing: 4) {
             GridRow {
-                Color.clear.frame(width: 48, height: 48)
+                Color.clear.frame(width: cell, height: cell)
                 faceButton(label: faceChars[2], pressed: gamepadInput.pressedButtons.contains("Y"))
-                Color.clear.frame(width: 48, height: 48)
+                Color.clear.frame(width: cell, height: cell)
             }
             GridRow {
                 faceButton(label: faceChars[1], pressed: gamepadInput.pressedButtons.contains("X"))
-                Color.clear.frame(width: 48, height: 48)
+                Color.clear.frame(width: cell, height: cell)
                 faceButton(label: faceChars[3], pressed: gamepadInput.pressedButtons.contains("B"))
             }
             GridRow {
-                Color.clear.frame(width: 48, height: 48)
+                Color.clear.frame(width: cell, height: cell)
                 faceButton(label: faceChars[4], pressed: gamepadInput.pressedButtons.contains("A"))
-                Color.clear.frame(width: 48, height: 48)
+                Color.clear.frame(width: cell, height: cell)
             }
         }
     }
 
-    // MARK: - 右スティックグリッド
+    // MARK: - スティックグリッド (3x3、Android 版 StickIndicator と同等)
 
-    private let stickSize: CGFloat = 36
+    /// LS / RS の方向別ロール（latch 視認・cursor / 特殊アクションの矢印太さ等）を
+    /// 内部 3×3 グリッドで表現する。Android 版の StickIndicator に倣う。
+    private func stickGrid(role: StickRole) -> some View {
+        let outer = m.stickOuter
+        let cell = m.stickCell
+        let pressed: Bool = role == .left
+            ? gamepadInput.pressedButtons.contains("LS")
+            : gamepadInput.pressedButtons.contains("RS")
 
-    private var rightStickGrid: some View {
-        let totalSize = stickSize * 3 + 8
+        // Devanagari の非 varga モード中は LS 方向に意味がないので物理 dir / latch
+        // を抑止する（方向セルが無意味にハイライトされるのを防ぐ）。
+        let suppressLs = role == .left && mode == .devanagari && gamepadInput.devaNonVargaActive
+        let physDir: GamepadInputManager.StickDirection = {
+            if suppressLs { return .neutral }
+            return role == .left ? gamepadInput.leftStickDirection : gamepadInput.rightStickDirection
+        }()
+        // Devanagari の LS latch を保持表示（物理 neutral でも latch 残存）。
+        let latchDir: GamepadInputManager.StickDirection = {
+            guard role == .left, mode == .devanagari, !gamepadInput.devaNonVargaActive else {
+                return .neutral
+            }
+            switch gamepadInput.devaLsDir {
+            case .up: return .up
+            case .down: return .down
+            case .left: return .left
+            case .right: return .right
+            case .neutral: return .neutral
+            }
+        }()
+        let centerLabel = stickCenterLabel(role: role)
+
         return ZStack {
             Circle()
                 .fill(Color(.systemGray6))
-                .frame(width: totalSize, height: totalSize)
-            Grid(horizontalSpacing: 4, verticalSpacing: 4) {
-                GridRow {
-                    Color.clear.frame(width: stickSize, height: stickSize)
-                    stickButton(label: rStickUpLabel, pressed: gamepadInput.pressedButtons.contains("rStickUp"))
-                    Color.clear.frame(width: stickSize, height: stickSize)
+                .frame(width: outer, height: outer)
+            VStack(spacing: m.stickGap) {
+                HStack(spacing: m.stickGap) {
+                    Color.clear.frame(width: cell, height: cell)
+                    stickCell(label: cellLabel(role: role, dir: .up),
+                              isActive: physDir == .up || latchDir == .up)
+                    Color.clear.frame(width: cell, height: cell)
                 }
-                GridRow {
-                    stickButton(label: rStickLeftLabel, pressed: gamepadInput.pressedButtons.contains("rStickLeft"))
-                    Color.clear.frame(width: stickSize, height: stickSize)
-                    stickButton(label: rStickRightLabel, pressed: gamepadInput.pressedButtons.contains("rStickRight"))
+                HStack(spacing: m.stickGap) {
+                    stickCell(label: cellLabel(role: role, dir: .left),
+                              isActive: physDir == .left || latchDir == .left)
+                    stickCell(label: centerLabel, isActive: pressed)
+                    stickCell(label: cellLabel(role: role, dir: .right),
+                              isActive: physDir == .right || latchDir == .right)
                 }
-                GridRow {
-                    Color.clear.frame(width: stickSize, height: stickSize)
-                    stickButton(label: rStickDownLabel, pressed: gamepadInput.pressedButtons.contains("rStickDown"))
-                    Color.clear.frame(width: stickSize, height: stickSize)
+                HStack(spacing: m.stickGap) {
+                    Color.clear.frame(width: cell, height: cell)
+                    stickCell(label: cellLabel(role: role, dir: .down),
+                              isActive: physDir == .down || latchDir == .down)
+                    Color.clear.frame(width: cell, height: cell)
                 }
+            }
+        }
+        .frame(width: outer, height: outer)
+    }
+
+    /// 1 セルの背景。活性時は accentColor 系でハイライト（Android の primaryContainer 相当）。
+    private func stickCell(label: String, isActive: Bool) -> some View {
+        let cell = m.stickCell
+        return ZStack {
+            if isActive {
+                Circle().fill(Color.accentColor.opacity(0.85))
+            }
+            Text(label)
+                .font(.system(size: m.stickFontSize, weight: .semibold))
+                .foregroundStyle(isActive ? Color.white : Color.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(width: cell, height: cell)
+    }
+
+    private func cellLabel(role: StickRole, dir: GamepadInputManager.StickDirection) -> String {
+        switch role {
+        case .left: return lsDirectionLabel(dir)
+        case .right: return rsDirectionLabel(dir)
+        }
+    }
+
+    /// LS 方向別の役割ラベル。GamepadInputManager の LS 処理ロジックと対応。
+    /// カーソル系は細い ↑↓←→、特殊アクション系は太い ⇧⇩⇦⇨ で視覚的に区別する。
+    private func lsDirectionLabel(_ dir: GamepadInputManager.StickDirection) -> String {
+        if dir == .neutral { return "" }
+        // Devanagari
+        if mode == .devanagari {
+            if gamepadInput.devaNonVargaActive { return "" }
+            if isRTPressed { return cursorArrowLabel(dir) }
+            switch dir {
+            case .up: return "क"
+            case .right: return "च"
+            case .down: return "ट"
+            case .left: return "त"
+            case .neutral: return ""
+            }
+        }
+        let im = gamepadInput.inputManager
+        let isConverting = im.state == .selecting || im.state == .previewing
+        // 日本語 / 変換中: 全方向が特殊アクション
+        if mode == .japanese && isConverting {
+            switch dir {
+            case .up: return "⇧"
+            case .down: return "⇩"
+            case .left: return "⇦"
+            case .right: return "⇨"
+            case .neutral: return ""
+            }
+        }
+        // 日本語 / 未変換バッファあり: ↓ だけ特殊（変換）、他はカーソル
+        if mode == .japanese && !im.isEmpty {
+            if dir == .down { return "⇩" }
+            return cursorArrowLabel(dir)
+        }
+        // 中国語 / 候補表示中: ↑↓ だけ特殊（候補サイクル）。←→ は LS では未使用。
+        let isChinese = mode == .chineseSimplified || mode == .chineseTraditional
+        if isChinese && !gamepadInput.pinyinCandidates.isEmpty {
+            switch dir {
+            case .up: return "⇧"
+            case .down: return "⇩"
+            default: return ""
+            }
+        }
+        return cursorArrowLabel(dir)
+    }
+
+    private func cursorArrowLabel(_ dir: GamepadInputManager.StickDirection) -> String {
+        switch dir {
+        case .up: return "↑"
+        case .down: return "↓"
+        case .left: return "←"
+        case .right: return "→"
+        case .neutral: return ""
+        }
+    }
+
+    /// RS 方向別の役割ラベル。代表 1 字に短縮（旧 rStickXxxLabel は複数文字を含むため
+    /// 3×3 セルでは縮めて表示する）。
+    private func rsDirectionLabel(_ dir: GamepadInputManager.StickDirection) -> String {
+        switch mode {
+        case .japanese:
+            switch dir {
+            case .up: return "゛"
+            case .down: return "、"
+            case .left: return "⌫"
+            case .right: return "ー"
+            case .neutral: return ""
+            }
+        case .english:
+            switch dir {
+            case .up: return "'"
+            case .down: return "␣"
+            case .left: return "⌫"
+            case .right: return "/"
+            case .neutral: return ""
+            }
+        case .korean:
+            // 자모 모드: ↑ 평격경 cycle / → 直前 jamo 連打
+            if gamepadInput.isKoreanJamoMode {
+                switch dir {
+                case .up: return "ㅋ"
+                case .down: return "␣"
+                case .left: return "⌫"
+                case .right: return "↻"
+                case .neutral: return ""
+                }
+            }
+            switch dir {
+            case .up: return "ㅋ"
+            case .down: return "␣"
+            case .left: return "⌫"
+            case .right: return "ㅘ"
+            case .neutral: return ""
+            }
+        case .chineseSimplified, .chineseTraditional:
+            switch dir {
+            case .down: return "，"
+            case .left: return "⌫"
+            case .right: return "、"
+            default: return ""
+            }
+        case .devanagari:
+            switch dir {
+            case .up: return "ं"
+            case .down: return "␣"
+            case .left: return "⌫"
+            case .right: return "ा"
+            case .neutral: return ""
+            }
+        }
+    }
+
+    /// スティック中央セルのラベル（クリック時の動作）。
+    /// - LS / Devanagari + RT 押下: ↵ (改行)
+    /// - LS / Devanagari + 非 varga モード: ✻
+    /// - LS / Devanagari + 通常: 現在 latch している varga 代表子音
+    /// - LS / 日本語 (変換中・未変換あり): ✓
+    /// - LS / 中国語 (候補表示中): ✓
+    /// - LS / その他: ↵
+    /// - RS: ✕
+    private func stickCenterLabel(role: StickRole) -> String {
+        switch role {
+        case .right: return "✕"
+        case .left:
+            switch mode {
+            case .devanagari:
+                if isRTPressed { return "↵" }
+                if gamepadInput.devaNonVargaActive { return "✻" }
+                let varga = resolveDevaVarga(gamepadInput.devaLsDir)
+                return String(devaVargaConsonants[varga.rawValue][0])
+            case .japanese:
+                let im = gamepadInput.inputManager
+                let isConverting = im.state == .selecting || im.state == .previewing
+                return (isConverting || !im.isEmpty) ? "✓" : "↵"
+            case .chineseSimplified, .chineseTraditional:
+                return gamepadInput.pinyinCandidates.isEmpty ? "↵" : "✓"
+            default:
+                return "↵"
             }
         }
     }
@@ -517,12 +713,12 @@ struct GamepadVisualizerView: View {
     private func shoulderButton(char: String, name: String, pressed: Bool) -> some View {
         VStack(spacing: 1) {
             Text(char)
-                .font(.system(size: 16, weight: .bold))
+                .font(.system(size: m.shoulderFontSize, weight: .bold))
             Text(name)
-                .font(.system(size: 10))
+                .font(.system(size: m.shoulderNameFontSize))
                 .foregroundStyle(pressed ? .white.opacity(0.6) : .secondary)
         }
-        .frame(minWidth: 52, minHeight: 44)
+        .frame(minWidth: m.shoulderMinW, minHeight: m.shoulderMinH)
         .background(pressed ? Color.accentColor : Color(.systemGray5), in: RoundedRectangle(cornerRadius: 8))
         .foregroundStyle(pressed ? .white : .primary)
         .shadow(color: Self.buttonShadow, radius: 2, y: 1)
@@ -533,8 +729,8 @@ struct GamepadVisualizerView: View {
 
     private func faceButton(label: String, pressed: Bool) -> some View {
         Text(label)
-            .font(.system(size: 16, weight: .bold))
-            .frame(width: 48, height: 48)
+            .font(.system(size: m.faceFontSize, weight: .bold))
+            .frame(width: m.faceCell, height: m.faceCell)
             .background(pressed ? Color.accentColor : Color(.systemGray5), in: Circle())
             .foregroundStyle(pressed ? .white : .primary)
             .shadow(color: Self.buttonShadow, radius: 2, y: 1)
@@ -544,22 +740,24 @@ struct GamepadVisualizerView: View {
 
     /// 英語モード: フェイスボタン位置に文字を十字配置した D-pad ボタン
     private func dpadButtonCross(chars: (left: String, up: String, right: String, down: String), pressed: Bool) -> some View {
-        ZStack {
+        let cell = m.dpadCell
+        let off = cell * 0.25
+        return ZStack {
             if !chars.up.isEmpty {
-                Text(chars.up).offset(y: -13)
+                Text(chars.up).offset(y: -off)
             }
             if !chars.left.isEmpty {
-                Text(chars.left).offset(x: -13)
+                Text(chars.left).offset(x: -off)
             }
             if !chars.right.isEmpty {
-                Text(chars.right).offset(x: 13)
+                Text(chars.right).offset(x: off)
             }
             if !chars.down.isEmpty {
-                Text(chars.down).offset(y: 13)
+                Text(chars.down).offset(y: off)
             }
         }
-        .font(.system(size: 13, weight: .bold))
-        .frame(width: 52, height: 52)
+        .font(.system(size: m.dpadFontSize, weight: .bold))
+        .frame(width: cell, height: cell)
         .background(pressed ? Color.accentColor : Color(.systemGray5).opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
         .foregroundStyle(pressed ? .white : .secondary)
         .shadow(color: Self.buttonShadow, radius: 2, y: 1)
@@ -570,21 +768,11 @@ struct GamepadVisualizerView: View {
 
     private func dpadButton(label: String, pressed: Bool) -> some View {
         Text(label)
-            .font(.system(size: 13, weight: .bold))
-            .frame(width: 52, height: 52)
+            .font(.system(size: m.dpadFontSize, weight: .bold))
+            .frame(width: m.dpadCell, height: m.dpadCell)
             .background(pressed ? Color.accentColor : Color(.systemGray5).opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
             .foregroundStyle(pressed ? .white : .secondary)
             .shadow(color: Self.buttonShadow, radius: 2, y: 1)
-            .accessibilityLabel(label)
-            .accessibilityValue(pressed ? "押下中" : "")
-    }
-
-    private func stickButton(label: String, pressed: Bool) -> some View {
-        Text(label)
-            .font(.system(size: 11, weight: .semibold))
-            .frame(width: stickSize, height: stickSize)
-            .background(pressed ? Color.accentColor : Color(.systemGray5), in: Circle())
-            .foregroundStyle(pressed ? .white : .secondary)
             .accessibilityLabel(label)
             .accessibilityValue(pressed ? "押下中" : "")
     }

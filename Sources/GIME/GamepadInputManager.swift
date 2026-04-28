@@ -75,6 +75,7 @@ final class GamepadInputManager {
     private(set) var activeLayer: ActiveLayer = .base
     private(set) var pressedButtons: Set<String> = []
     private(set) var leftStickDirection: StickDirection = .neutral
+    private(set) var rightStickDirection: StickDirection = .neutral
     private(set) var currentMode: GamepadInputMode = .japanese
 
     /// 中国語モード判定（簡体/繁体共通のロジック用）
@@ -430,6 +431,16 @@ final class GamepadInputManager {
         }()
         if leftStickDirection != lDir { leftStickDirection = lDir }
 
+        // 右スティック方向の UI 状態更新（既に rStickUp 等は計算済み）
+        let rDir: StickDirection = {
+            if rStickUp { return .up }
+            if rStickDown { return .down }
+            if rStickLeft { return .left }
+            if rStickRight { return .right }
+            return .neutral
+        }()
+        if rightStickDirection != rDir { rightStickDirection = rDir }
+
         // === モード別の文字入力・トリガー処理 ===
         switch currentMode {
         case .japanese:
@@ -668,11 +679,19 @@ final class GamepadInputManager {
             if isChinese && !pinyinCandidates.isEmpty {
                 confirmPinyinSelectedCandidate()
             } else if currentMode == .devanagari {
-                // LS click = 非 varga サブレイヤーをトグル。
-                // 注意: composer は commit しない。cluster 途中で子音クラスを
-                // 切替える必要がある（例: स्त्य = sibilant → varga → semivowel）
-                // ので、halant 自動挿入を効かせるには state 保持が必須。
-                devaNonVargaActive.toggle()
+                if gp.rtValue > stickThreshold {
+                    // RT 押下中の LS click = 改行。
+                    // RT+LS 方向はカーソル移動、RT+LS click はその拡張で改行を割当。
+                    // RT 解放時の halant 発火は `devaRtUsedForCursor` で抑止。
+                    executeAction(.confirmOrNewline)
+                    devaRtUsedForCursor = true
+                } else {
+                    // 非 varga サブレイヤーをトグル。
+                    // 注意: composer は commit しない。cluster 途中で子音クラスを
+                    // 切替える必要がある（例: स्त्य = sibilant → varga → semivowel）
+                    // ので、halant 自動挿入を効かせるには state 保持が必須。
+                    devaNonVargaActive.toggle()
+                }
             } else {
                 executeAction(.confirmOrNewline)
             }
@@ -1781,6 +1800,8 @@ final class GamepadInputManager {
         if rStickDown { buttons.insert("rStickDown") }
         if rStickLeft { buttons.insert("rStickLeft") }
         if rStickRight { buttons.insert("rStickRight") }
+        if gp.lsClick { buttons.insert("LS") }
+        if gp.rsClick { buttons.insert("RS") }
         if pressedButtons != buttons { pressedButtons = buttons }
     }
 }
