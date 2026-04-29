@@ -229,12 +229,15 @@ final class GamepadInputManager {
     /// ON の間、D-pad は semivowel (य र ल व) / LT 押下時は sibilant (श ष स ह) を返す。
     private(set) var devaNonVargaActive: Bool = false
     /// LS の latched 方向（varga 選択）。LS と D-pad は物理的に左親指で同時操作
-    /// できないため、LS 方向はトグルラッチにしてある:
+    /// できないため、LS 方向はラッチで保持する。前置シフト方式:
     ///  - LS を方向 X に倒す (first push) → latch = X
-    ///  - LS を離す（中立）→ latch は保持
+    ///  - LS を離す（中立）→ latch は保持（次の左手側入力まで）
     ///  - 同じ方向 X を再度倒す → toggle off (latch = neutral)
     ///  - 別方向 Y に倒す → latch = Y
-    /// これにより、ユーザーは LS で varga を指定してから親指を D-pad に移動できる。
+    ///  - 左手側出力（D-pad 子音 / LB 鼻音）発火 → latch = neutral（自動消費）
+    /// これにより、毎回 `LS方向flick → D-pad押下` の同じリズムになり、
+    /// 「今どの段にラッチ中か」をユーザーが意識せずブラインドで打鍵できる。
+    /// 同段子音を連続で打つ場合は LS を flick し直す必要がある。
     private(set) var devaLsDir: DevaLsDirection = .neutral
 
     /// 現在の Devanagari composing buffer（ビジュアライザ / OSC 連携で参照）
@@ -1516,6 +1519,9 @@ final class GamepadInputManager {
                 if devaNonVargaActive {
                     devaNonVargaActive = false
                 }
+                // 前置シフト: 左手側出力で LS latch を消費してリセット。
+                // 次の子音は再度 LS を flick して指定する。
+                devaLsDir = .neutral
             }
         }
 
@@ -1525,6 +1531,8 @@ final class GamepadInputManager {
             let nasal = devaVargaConsonants[varga.rawValue][4]
             let out = devanagariComposer.inputConsonant(nasal)
             onDirectInsert?(out.text, out.replaceCount)
+            // 前置シフト: 左手側出力で LS latch を消費してリセット。
+            devaLsDir = .neutral
         }
 
         // === 母音 emission ===
