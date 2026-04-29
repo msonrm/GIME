@@ -51,12 +51,15 @@ class GamepadInputManager {
     var devaNonVargaActive: Boolean by mutableStateOf(false)
         private set
     /// LS の latched 方向（varga 選択）。LS と D-pad は物理的に左親指で同時操作
-    /// できないため、LS 方向はトグルラッチにしてある:
+    /// できないため、LS 方向はラッチで保持する。前置シフト方式:
     ///  - LS を方向 X に倒す (first push) → latch = X
-    ///  - LS を離す（中立）→ latch は保持
+    ///  - LS を離す（中立）→ latch は保持（次の左手側入力まで）
     ///  - 同じ方向 X を再度倒す → toggle off (latch = NEUTRAL)
     ///  - 別方向 Y に倒す → latch = Y
-    /// これにより、ユーザーは LS で varga を指定してから親指を D-pad に移動できる。
+    ///  - 左手側出力（D-pad 子音 / LB 鼻音）発火 → latch = NEUTRAL（自動消費）
+    /// これにより、毎回 `LS方向flick → D-pad押下` の同じリズムになり、
+    /// 「今どの段にラッチ中か」をユーザーが意識せずブラインドで打鍵できる。
+    /// 同段子音を連続で打つ場合は LS を flick し直す必要がある。
     var devaLsDir: DevaLsDirection by mutableStateOf(DevaLsDirection.NEUTRAL)
         private set
 
@@ -1833,6 +1836,9 @@ class GamepadInputManager {
                 if (devaNonVargaActive) {
                     devaNonVargaActive = false
                 }
+                // 前置シフト: 左手側出力で LS latch を消費してリセット。
+                // 次の子音は再度 LS を flick して指定する。
+                devaLsDir = DevaLsDirection.NEUTRAL
             }
         }
 
@@ -1843,6 +1849,8 @@ class GamepadInputManager {
             val nasal = DEVA_VARGA_CONSONANTS[varga.index][4]
             val out = devanagariComposer.inputConsonant(nasal)
             onDirectInsert?.invoke(out.text, out.replaceCount)
+            // 前置シフト: 左手側出力で LS latch を消費してリセット。
+            devaLsDir = DevaLsDirection.NEUTRAL
         }
 
         // === 母音 emission ===
