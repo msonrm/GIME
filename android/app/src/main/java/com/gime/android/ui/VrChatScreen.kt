@@ -32,6 +32,7 @@ import kotlinx.coroutines.launch
  * - テスト送信 (設定した送信先 / loopback の両方)
  * - デバッグ受信ログ表示 (Pixel 10 単独で送受信確認可能)
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun VrChatScreen(onClose: () -> Unit) {
     val context = LocalContext.current
