@@ -17,15 +17,25 @@ enum class CustomOscValueType(val raw: String) {
 }
 
 /**
- * 二段送信翻訳のターゲット言語。ML Kit Translate の言語コードと一致させる。
+ * 二段送信翻訳のターゲット言語。`mlKitCode` は ML Kit Translate の言語コードに対応。
  * `OFF` 以外を選ぶと、commit 後に翻訳結果を notification=false で chatbox に
  * 上書き送信する（VRChat 側では音無しで日本語が翻訳に置き換わる）。
+ *
+ * 中文は ML Kit が「簡体のみ」しかモデルを持たないため、繁體（台湾）は
+ * `toTraditionalTaiwan = true` で OpenCC4j の s2twp 後処理を通して語彙レベルで
+ * 「電腦 / 軟體 / 網路」等の台湾風表現に寄せる。
  */
-enum class TranslationTarget(val raw: String, val mlKitCode: String?, val display: String) {
+enum class TranslationTarget(
+    val raw: String,
+    val mlKitCode: String?,
+    val display: String,
+    val toTraditionalTaiwan: Boolean = false,
+) {
     OFF("off", null, "OFF"),
     EN("en", "en", "English"),
     KO("ko", "ko", "한국어"),
-    ZH("zh", "zh", "中文");
+    ZH_CN("zh", "zh", "中文(简体)"),
+    ZH_TW("zh-TW", "zh", "中文(繁體・台湾)", toTraditionalTaiwan = true);
 
     companion object {
         fun fromRaw(raw: String?): TranslationTarget = values().firstOrNull { it.raw == raw } ?: OFF
@@ -157,6 +167,19 @@ class VrChatOscSettings(context: Context) {
         set(v) { prefs.edit().putBoolean(KEY_TRANSLATION_WIFI_ONLY, v).apply() }
 
     /**
+     * 翻訳上書きまでの最低遅延 (ms)。`commit()` で日本語を送信した時刻から
+     * この時間が経過するまで上書き送信を待つ。翻訳自体は並行で進めるので、
+     * 翻訳が `delayMs` より時間がかかった場合はその時点で即上書き、
+     * 短かった場合は残り時間を待ってから上書きする。
+     *
+     * 0 にすると即時上書き（最小レイテンシ）。1500ms くらいで「原文を読む間が
+     * 取れる」体験になる。配信・デモ動画でキャプチャするときに視認性を確保する用途も。
+     */
+    var translationOverwriteDelayMs: Int
+        get() = prefs.getInt(KEY_TRANSLATION_OVERWRITE_DELAY, DEFAULT_TRANSLATION_OVERWRITE_DELAY)
+        set(v) { prefs.edit().putInt(KEY_TRANSLATION_OVERWRITE_DELAY, v).apply() }
+
+    /**
      * start / end 値を OSC 送信用の `Any` に解決した Pair を返す。parse 失敗時や
      * `customTypingEnabled == false`、アドレスが不正な場合は `null`。
      */
@@ -199,6 +222,7 @@ class VrChatOscSettings(context: Context) {
         private const val KEY_CUSTOM_TYPING_END_VALUE = "customTypingEndValue"
         private const val KEY_TRANSLATION_TARGET = "translationTarget"
         private const val KEY_TRANSLATION_WIFI_ONLY = "translationWifiOnly"
+        private const val KEY_TRANSLATION_OVERWRITE_DELAY = "translationOverwriteDelayMs"
 
         const val DEFAULT_ENABLED = false
         const val DEFAULT_HOST = "127.0.0.1"
@@ -214,5 +238,9 @@ class VrChatOscSettings(context: Context) {
         const val DEFAULT_CUSTOM_TYPING_START_VALUE = "7"
         const val DEFAULT_CUSTOM_TYPING_END_VALUE = "0"
         const val DEFAULT_TRANSLATION_WIFI_ONLY = true
+        const val DEFAULT_TRANSLATION_OVERWRITE_DELAY = 1500
+
+        /** UI の選択肢として並べる遅延候補 (ms)。 */
+        val TRANSLATION_OVERWRITE_DELAY_OPTIONS = listOf(0, 1000, 1500, 2000, 3000)
     }
 }

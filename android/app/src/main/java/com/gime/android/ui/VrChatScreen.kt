@@ -21,6 +21,7 @@ import com.gime.android.osc.OscReceiver
 import com.gime.android.osc.OscSender
 import com.gime.android.osc.TranslationTarget
 import com.gime.android.osc.VrChatOscSettings
+import com.gime.android.translate.ChineseConverter
 import com.gime.android.translate.TranslatorManager
 import kotlinx.coroutines.launch
 
@@ -49,6 +50,7 @@ fun VrChatScreen(onClose: () -> Unit) {
     var customTypingEnd by remember { mutableStateOf(settings.customTypingEndValue) }
     var translationTarget by remember { mutableStateOf(settings.translationTarget) }
     var translationWifiOnly by remember { mutableStateOf(settings.translationWifiOnly) }
+    var translationDelay by remember { mutableIntStateOf(settings.translationOverwriteDelayMs) }
     var translationStatus by remember { mutableStateOf<String?>(null) }
     var receiverEnabled by remember { mutableStateOf(settings.receiverEnabled) }
     var receiverPortText by remember { mutableStateOf(settings.receiverPort.toString()) }
@@ -351,20 +353,19 @@ fun VrChatScreen(onClose: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(modifier = Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("ターゲット", fontSize = 13.sp, modifier = Modifier.width(80.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                TranslationTarget.values().forEach { t ->
-                    FilterChip(
-                        selected = translationTarget == t,
-                        onClick = {
-                            translationTarget = t
-                            settings.translationTarget = t
-                            translationStatus = null
-                        },
-                        label = { Text(t.display) },
-                    )
-                }
+        Text("ターゲット", fontSize = 13.sp)
+        Spacer(modifier = Modifier.height(4.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            TranslationTarget.values().forEach { t ->
+                FilterChip(
+                    selected = translationTarget == t,
+                    onClick = {
+                        translationTarget = t
+                        settings.translationTarget = t
+                        translationStatus = null
+                    },
+                    label = { Text(t.display) },
+                )
             }
         }
         Spacer(modifier = Modifier.height(6.dp))
@@ -390,6 +391,30 @@ fun VrChatScreen(onClose: () -> Unit) {
             )
         }
         if (translationTarget != TranslationTarget.OFF) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Text("上書きまでの遅延", fontSize = 13.sp)
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                "原文（日本語）が上書きされるまでの最低時間。短すぎると原文を読む間が無く、\n" +
+                    "翻訳が正しいか不安になる場合に長めに設定。デモ動画キャプチャにも有効。",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                VrChatOscSettings.TRANSLATION_OVERWRITE_DELAY_OPTIONS.forEach { ms ->
+                    FilterChip(
+                        selected = translationDelay == ms,
+                        onClick = {
+                            translationDelay = ms
+                            settings.translationOverwriteDelayMs = ms
+                        },
+                        label = {
+                            Text(if (ms == 0) "即時" else "${ms / 1000.0}s".replace(".0s", "s"))
+                        },
+                    )
+                }
+            }
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedButton(
                 onClick = {
@@ -399,7 +424,10 @@ fun VrChatScreen(onClose: () -> Unit) {
                     scope.launch {
                         val ok = tm.ensureModelDownloaded(translationWifiOnly)
                         translationStatus = if (ok) {
-                            val sample = tm.translate("こんにちは、はじめまして", translationWifiOnly)
+                            val raw = tm.translate("こんにちは、はじめまして", translationWifiOnly)
+                            val sample = if (raw != null && translationTarget.toTraditionalTaiwan) {
+                                ChineseConverter.simplifiedToTraditionalTaiwan(raw)
+                            } else raw
                             if (sample != null) "OK: $sample" else "DL 完了 / 翻訳失敗"
                         } else {
                             "DL 失敗（WiFi 接続を確認してください）"

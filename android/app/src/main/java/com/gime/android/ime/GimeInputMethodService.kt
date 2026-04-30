@@ -29,6 +29,7 @@ import com.gime.android.osc.OscSender
 import com.gime.android.osc.TranslationTarget
 import com.gime.android.osc.VrChatOscOutput
 import com.gime.android.osc.VrChatOscSettings
+import com.gime.android.translate.ChineseConverter
 import com.gime.android.translate.TranslatorManager
 import com.kazumaproject.markdownhelperkeyboard.repository.LearnRepository
 import com.kazumaproject.markdownhelperkeyboard.repository.UserDictionaryRepository
@@ -108,15 +109,25 @@ class GimeInputMethodService :
 
     /// 二段送信翻訳。`commit()` 直後に呼び、裏で翻訳して notification=false で
     /// 上書き送信する。設定 OFF・モデル未 DL・空文字なら何もしない。
+    /// `translationOverwriteDelayMs` で「原文を読める時間」を確保する：翻訳と
+    /// 並行カウントして、翻訳完了が遅延より早ければ残り時間を待つ。
     private fun scheduleTranslationFollowup(originalText: String) {
         val s = vrChatSettings ?: return
         val out = vrChatOutput ?: return
         if (s.translationTarget == TranslationTarget.OFF) return
         if (originalText.isBlank()) return
         val wifiOnly = s.translationWifiOnly
+        val delayMs = s.translationOverwriteDelayMs
+        val target = s.translationTarget
+        val commitTime = System.currentTimeMillis()
         serviceScope.launch {
-            val translated = translator.translate(originalText, wifiOnly) ?: return@launch
+            val raw = translator.translate(originalText, wifiOnly) ?: return@launch
+            val translated = if (target.toTraditionalTaiwan) {
+                ChineseConverter.simplifiedToTraditionalTaiwan(raw)
+            } else raw
             if (translated.isBlank() || translated == originalText) return@launch
+            val remaining = delayMs - (System.currentTimeMillis() - commitTime)
+            if (remaining > 0) kotlinx.coroutines.delay(remaining)
             out.sendTranslationFollowup(translated)
         }
     }
