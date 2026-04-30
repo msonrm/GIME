@@ -143,7 +143,7 @@ dependencies {
     implementation("com.google.mlkit:language-id:17.0.6")
 
     // OpenCC4j: ML Kit ZH（簡体）→ 繁體（台湾）後処理用。純 JVM 実装、JNI 不要、Apache 2.0
-    implementation("com.github.houbb:opencc4j:1.8.2")
+    implementation("com.github.houbb:opencc4j:1.14.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 
