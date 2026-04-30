@@ -26,8 +26,10 @@ import com.gime.android.input.GamepadInputManager
 import com.gime.android.input.GamepadSnapshot
 import com.gime.android.learn.DatabaseProvider
 import com.gime.android.osc.OscSender
+import com.gime.android.osc.TranslationTarget
 import com.gime.android.osc.VrChatOscOutput
 import com.gime.android.osc.VrChatOscSettings
+import com.gime.android.translate.TranslatorManager
 import com.kazumaproject.markdownhelperkeyboard.repository.LearnRepository
 import com.kazumaproject.markdownhelperkeyboard.repository.UserDictionaryRepository
 import kotlinx.coroutines.CoroutineScope
@@ -81,6 +83,7 @@ class GimeInputMethodService :
     // VRChat OSC 連携（Phase A7-3/4）
     private var vrChatSettings: VrChatOscSettings? = null
     private var vrChatOutput: VrChatOscOutput? = null
+    private val translator = TranslatorManager()
 
     /// VRChat モードで LS 送信するまでの累積テキスト（確定済み文節 + 句読点）。
     /// 現在 composing 中の `imeComposingText` はまだ含まない。
@@ -101,6 +104,21 @@ class GimeInputMethodService :
         val out = vrChatOutput ?: return
         val draft = vrChatAccumulated + imeComposingText
         out.sendComposingText(draft)
+    }
+
+    /// 二段送信翻訳。`commit()` 直後に呼び、裏で翻訳して notification=false で
+    /// 上書き送信する。設定 OFF・モデル未 DL・空文字なら何もしない。
+    private fun scheduleTranslationFollowup(originalText: String) {
+        val s = vrChatSettings ?: return
+        val out = vrChatOutput ?: return
+        if (s.translationTarget == TranslationTarget.OFF) return
+        if (originalText.isBlank()) return
+        val wifiOnly = s.translationWifiOnly
+        serviceScope.launch {
+            val translated = translator.translate(originalText, wifiOnly) ?: return@launch
+            if (translated.isBlank() || translated == originalText) return@launch
+            out.sendTranslationFollowup(translated)
+        }
     }
 
     /// 設定を元に VrChatOscOutput を起動/更新/停止する。
@@ -128,9 +146,11 @@ class GimeInputMethodService :
                     Log.e(TAG, "OscSender init failed", t)
                 }
             }
+            translator.setTarget(s.translationTarget.mlKitCode)
         } else {
             vrChatOutput?.close()
             vrChatOutput = null
+            translator.setTarget(null)
         }
     }
 
@@ -208,6 +228,7 @@ class GimeInputMethodService :
         Log.d(TAG, "onDestroy")
         try { vrChatOutput?.close() } catch (_: Throwable) {}
         vrChatOutput = null
+        try { translator.close() } catch (_: Throwable) {}
         serviceScope.cancel()
         try {
             viewModelStoreInstance.clear()
@@ -472,9 +493,11 @@ class GimeInputMethodService :
             if (out != null && vrChatAccumulated.isNotEmpty() && imeComposingText.isEmpty()) {
                 // VRChat モード: 累積を chatbox に即時確定送信
                 // （Enter 入力の代わりに「メッセージ送信」セマンティクス）
-                out.commit(vrChatAccumulated)
+                val sent = vrChatAccumulated
+                out.commit(sent)
                 vrChatAccumulated = ""
                 updateDraftLength()
+                scheduleTranslationFollowup(sent)
             } else {
                 val ic = currentInputConnection
                 val info = currentInputEditorInfo

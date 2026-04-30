@@ -42,8 +42,10 @@ import com.gime.android.input.GamepadInputManager
 import com.gime.android.input.GamepadSnapshot
 import com.gime.android.learn.DatabaseProvider
 import com.gime.android.osc.OscSender
+import com.gime.android.osc.TranslationTarget
 import com.gime.android.osc.VrChatOscOutput
 import com.gime.android.osc.VrChatOscSettings
+import com.gime.android.translate.TranslatorManager
 import com.gime.android.settings.GimeModeSettings
 import com.kazumaproject.markdownhelperkeyboard.repository.LearnRepository
 import com.kazumaproject.markdownhelperkeyboard.repository.UserDictionaryRepository
@@ -113,6 +115,7 @@ class BubbleService :
 
     private var vrChatSettings: VrChatOscSettings? = null
     private var vrChatOutput: VrChatOscOutput? = null
+    private val translator = TranslatorManager()
 
     /// chatbox の累積テキスト（LS 確定送信までの下書き）。
     private var vrChatAccumulated: String = ""
@@ -355,6 +358,7 @@ class BubbleService :
         } catch (_: Throwable) {}
         try { vrChatOutput?.close() } catch (_: Throwable) {}
         vrChatOutput = null
+        try { translator.close() } catch (_: Throwable) {}
         serviceScope.cancel()
         try { viewModelStoreInstance.clear() } catch (_: Throwable) {}
         removeOverlay()
@@ -426,9 +430,26 @@ class BubbleService :
                     Log.e(TAG, "OscSender init failed", t)
                 }
             }
+            translator.setTarget(s.translationTarget.mlKitCode)
         } else {
             vrChatOutput?.close()
             vrChatOutput = null
+            translator.setTarget(null)
+        }
+    }
+
+    /// 二段送信翻訳。`commit()` 直後に呼び、裏で翻訳して notification=false で
+    /// 上書き送信する。設定 OFF・翻訳失敗時は何もしない。
+    private fun scheduleTranslationFollowup(originalText: String) {
+        val s = vrChatSettings ?: return
+        val out = vrChatOutput ?: return
+        if (s.translationTarget == TranslationTarget.OFF) return
+        if (originalText.isBlank()) return
+        val wifiOnly = s.translationWifiOnly
+        serviceScope.launch {
+            val translated = translator.translate(originalText, wifiOnly) ?: return@launch
+            if (translated.isBlank() || translated == originalText) return@launch
+            out.sendTranslationFollowup(translated)
         }
     }
 
@@ -492,9 +513,11 @@ class BubbleService :
         inputManager.onConfirmOrNewline = {
             val out = vrChatOutput
             if (out != null && vrChatAccumulated.isNotEmpty() && composingText.isEmpty()) {
-                out.commit(vrChatAccumulated)
+                val sent = vrChatAccumulated
+                out.commit(sent)
                 vrChatAccumulated = ""
                 refreshDraftPreview()
+                scheduleTranslationFollowup(sent)
                 // 送信後に自動でフォーカスを解放する設定なら、バブルを非アクティブ化
                 // してゲームパッド入力を下の VRChat に戻す。
                 if (vrChatSettings?.autoReleaseAfterSend == true) {

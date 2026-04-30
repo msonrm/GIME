@@ -19,7 +19,9 @@ import androidx.compose.ui.unit.sp
 import com.gime.android.osc.CustomOscValueType
 import com.gime.android.osc.OscReceiver
 import com.gime.android.osc.OscSender
+import com.gime.android.osc.TranslationTarget
 import com.gime.android.osc.VrChatOscSettings
+import com.gime.android.translate.TranslatorManager
 import kotlinx.coroutines.launch
 
 /**
@@ -45,6 +47,9 @@ fun VrChatScreen(onClose: () -> Unit) {
     var customTypingValueType by remember { mutableStateOf(settings.customTypingValueType) }
     var customTypingStart by remember { mutableStateOf(settings.customTypingStartValue) }
     var customTypingEnd by remember { mutableStateOf(settings.customTypingEndValue) }
+    var translationTarget by remember { mutableStateOf(settings.translationTarget) }
+    var translationWifiOnly by remember { mutableStateOf(settings.translationWifiOnly) }
+    var translationStatus by remember { mutableStateOf<String?>(null) }
     var receiverEnabled by remember { mutableStateOf(settings.receiverEnabled) }
     var receiverPortText by remember { mutableStateOf(settings.receiverPort.toString()) }
     val logLines = remember { mutableStateListOf<String>() }
@@ -327,6 +332,85 @@ fun VrChatScreen(onClose: () -> Unit) {
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.error,
                 )
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+
+        HorizontalDivider()
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // 二段送信翻訳（commit 直後に裏で翻訳して /chatbox/input を上書き）
+        Text("送信後の自動翻訳（二段送信）", fontSize = 15.sp)
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            "LS で日本語を送信したあと、裏で ML Kit On-Device Translation にかけて、\n" +
+                "翻訳結果を通知音なしで chatbox に上書き送信します。\n" +
+                "VRChat 側では「日本語送信音 → 静かに翻訳が表示」の挙動。\n" +
+                "翻訳に失敗したら日本語のまま残ります。完全オフライン処理。",
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("ターゲット", fontSize = 13.sp, modifier = Modifier.width(80.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                TranslationTarget.values().forEach { t ->
+                    FilterChip(
+                        selected = translationTarget == t,
+                        onClick = {
+                            translationTarget = t
+                            settings.translationTarget = t
+                            translationStatus = null
+                        },
+                        label = { Text(t.display) },
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("WiFi のみでモデル DL", fontSize = 13.sp)
+                Text(
+                    "翻訳モデル（言語ペアごとに ~30MB）の初回ダウンロードを WiFi 限定にします。",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = translationWifiOnly,
+                onCheckedChange = {
+                    translationWifiOnly = it
+                    settings.translationWifiOnly = it
+                },
+            )
+        }
+        if (translationTarget != TranslationTarget.OFF) {
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = {
+                    val tm = TranslatorManager()
+                    tm.setTarget(translationTarget.mlKitCode)
+                    translationStatus = "モデルを取得中..."
+                    scope.launch {
+                        val ok = tm.ensureModelDownloaded(translationWifiOnly)
+                        translationStatus = if (ok) {
+                            val sample = tm.translate("こんにちは、はじめまして", translationWifiOnly)
+                            if (sample != null) "OK: $sample" else "DL 完了 / 翻訳失敗"
+                        } else {
+                            "DL 失敗（WiFi 接続を確認してください）"
+                        }
+                        tm.close()
+                    }
+                },
+            ) { Text("モデルを事前ダウンロード + テスト") }
+            translationStatus?.let {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(it, fontSize = 11.sp, color = MaterialTheme.colorScheme.tertiary)
             }
         }
         Spacer(modifier = Modifier.height(16.dp))

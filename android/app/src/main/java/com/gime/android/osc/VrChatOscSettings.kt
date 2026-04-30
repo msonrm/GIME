@@ -17,6 +17,22 @@ enum class CustomOscValueType(val raw: String) {
 }
 
 /**
+ * 二段送信翻訳のターゲット言語。ML Kit Translate の言語コードと一致させる。
+ * `OFF` 以外を選ぶと、commit 後に翻訳結果を notification=false で chatbox に
+ * 上書き送信する（VRChat 側では音無しで日本語が翻訳に置き換わる）。
+ */
+enum class TranslationTarget(val raw: String, val mlKitCode: String?, val display: String) {
+    OFF("off", null, "OFF"),
+    EN("en", "en", "English"),
+    KO("ko", "ko", "한국어"),
+    ZH("zh", "zh", "中文");
+
+    companion object {
+        fun fromRaw(raw: String?): TranslationTarget = values().firstOrNull { it.raw == raw } ?: OFF
+    }
+}
+
+/**
  * VRChat OSC 連携の設定。SharedPreferences バックエンド。
  *
  * デフォルトは全て OFF。ユーザーが明示的に有効化するまで
@@ -121,6 +137,26 @@ class VrChatOscSettings(context: Context) {
         set(v) { prefs.edit().putString(KEY_CUSTOM_TYPING_END_VALUE, v).apply() }
 
     /**
+     * 二段送信翻訳のターゲット言語。`OFF` で機能無効。
+     *
+     * `OFF` 以外: LS commit で日本語を /chatbox/input に確定送信したあと、
+     * 裏で ML Kit Translate にかけて、結果を notification=false で
+     * 同じ /chatbox/input に上書き送信する。VRChat 側では「日本語送信音 →
+     * 静かに英訳が表示」の挙動になる。翻訳に失敗したら日本語のまま残る。
+     */
+    var translationTarget: TranslationTarget
+        get() = TranslationTarget.fromRaw(prefs.getString(KEY_TRANSLATION_TARGET, null))
+        set(v) { prefs.edit().putString(KEY_TRANSLATION_TARGET, v.raw).apply() }
+
+    /**
+     * 翻訳モデルのダウンロードを WiFi 接続時のみ許可するか。
+     * ML Kit のモデルは ~30MB なので、デフォルト ON でモバイル回線消費を防ぐ。
+     */
+    var translationWifiOnly: Boolean
+        get() = prefs.getBoolean(KEY_TRANSLATION_WIFI_ONLY, DEFAULT_TRANSLATION_WIFI_ONLY)
+        set(v) { prefs.edit().putBoolean(KEY_TRANSLATION_WIFI_ONLY, v).apply() }
+
+    /**
      * start / end 値を OSC 送信用の `Any` に解決した Pair を返す。parse 失敗時や
      * `customTypingEnabled == false`、アドレスが不正な場合は `null`。
      */
@@ -161,6 +197,8 @@ class VrChatOscSettings(context: Context) {
         private const val KEY_CUSTOM_TYPING_VALUE_TYPE = "customTypingValueType"
         private const val KEY_CUSTOM_TYPING_START_VALUE = "customTypingStartValue"
         private const val KEY_CUSTOM_TYPING_END_VALUE = "customTypingEndValue"
+        private const val KEY_TRANSLATION_TARGET = "translationTarget"
+        private const val KEY_TRANSLATION_WIFI_ONLY = "translationWifiOnly"
 
         const val DEFAULT_ENABLED = false
         const val DEFAULT_HOST = "127.0.0.1"
@@ -175,5 +213,6 @@ class VrChatOscSettings(context: Context) {
         val DEFAULT_CUSTOM_TYPING_VALUE_TYPE = CustomOscValueType.INT
         const val DEFAULT_CUSTOM_TYPING_START_VALUE = "7"
         const val DEFAULT_CUSTOM_TYPING_END_VALUE = "0"
+        const val DEFAULT_TRANSLATION_WIFI_ONLY = true
     }
 }

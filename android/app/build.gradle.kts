@@ -138,6 +138,10 @@ dependencies {
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
 
+    // ML Kit On-Device Translation（VRChat OSC 二段送信用、初回はモデル ~30MB を WiFi 取得）
+    implementation("com.google.mlkit:translate:17.0.3")
+    implementation("com.google.mlkit:language-id:17.0.6")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // Unit tests (JVM)

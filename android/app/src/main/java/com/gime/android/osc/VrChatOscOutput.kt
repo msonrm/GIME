@@ -91,6 +91,18 @@ class VrChatOscOutput(
         }
     }
 
+    /// 翻訳の二段送信用。直前の commit を上書きするため、sendMessage=true /
+    /// notification=false で /chatbox/input を再送する（VRChat 側で「音が鳴らずに
+    /// テキストが置き換わる」挙動）。typing indicator やカスタムアクションは触らない。
+    /// `text` が空なら no-op。`commit()` の直後に呼ぶことを想定。
+    fun sendTranslationFollowup(text: String) {
+        if (text.isEmpty()) return
+        val body = text.take(MAX_CHATBOX_LEN)
+        scope.launch {
+            runCatching { sender.send("/chatbox/input", body, true, false) }
+        }
+    }
+
     /// 確定送信。通知音 + 永続表示で chatbox に確定メッセージが載る。
     /// debounce 中の下書きは破棄し、確定テキストを即送信する。
     fun commit(text: String) {
