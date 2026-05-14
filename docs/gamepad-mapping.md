@@ -33,6 +33,7 @@ Start ボタンでモードを切り替える。
 | ボタン | 動作 |
 |--------|------|
 | LS 押し込み | 確定（composing 中、文節単位の部分確定）/ 改行（idle 時） |
+| **LT + LS 押し込み** | **Ctrl+Enter 送信**（Slack / Discord / X / ChatGPT 等の「Ctrl+Enter で送信」用、Android GIME のみ）。composing 中はまず確定してから送る。Devanagari の `RT+LS click = 改行` と衝突しないよう、`LT && RT` 同時押し時は通常経路に戻す |
 | RS 押し込み | キャンセル（composing 破棄） |
 | Back / Select | idle 時: テキスト操作モードトグル。composing 時: スペース |
 | Start | モード切替 |
