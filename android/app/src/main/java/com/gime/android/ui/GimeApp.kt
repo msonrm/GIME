@@ -130,6 +130,18 @@ fun GimeApp(
             val newText = before + "\n" + after
             textFieldValue = TextFieldValue(newText, TextRange(cursor + 1))
         }
+
+        // ローカル TextField には Ctrl+Enter の意味がないので、お試し検証用に可視マーカー
+        // を挿入する。実用は IME (GimeInputMethodService) 経由を前提とする。
+        inputManager.onCtrlEnter = {
+            val currentText = textFieldValue.text
+            val cursor = textFieldValue.selection.start
+            val before = currentText.substring(0, cursor)
+            val after = currentText.substring(cursor)
+            val marker = "⌃↵"
+            val newText = before + marker + after
+            textFieldValue = TextFieldValue(newText, TextRange(cursor + marker.length))
+        }
     }
 
     Scaffold(
@@ -419,6 +431,8 @@ fun CandidateOverlay(
                     .padding(8.dp),
             ) {
                 if (inputManager.isConverting && inputManager.bunsetsuReadings.isNotEmpty()) {
+                    // 「確定したらこうなる」プレビュー。文節ごとの現在選択中の surface
+                    // （漢字変換結果）を並べる。
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = "変換中: ",
@@ -428,11 +442,14 @@ fun CandidateOverlay(
                         Row {
                             inputManager.bunsetsuReadings.forEachIndexed { i, r ->
                                 val isFocused = i == inputManager.focusedBunsetsuIndex
+                                val selectedIdx = inputManager.bunsetsuSelectedIndices.getOrNull(i) ?: 0
+                                val surface = inputManager.bunsetsuCandidates
+                                    .getOrNull(i)?.getOrNull(selectedIdx)?.surface ?: r
                                 if (i > 0) Text("|", color = MaterialTheme.colorScheme.outline, fontSize = 16.sp)
                                 Text(
-                                    text = r,
+                                    text = surface,
                                     color = if (isFocused) MaterialTheme.colorScheme.onPrimaryContainer
-                                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            else MaterialTheme.colorScheme.onSurface,
                                     fontSize = 16.sp,
                                     modifier = if (isFocused) Modifier.background(
                                         MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(3.dp)

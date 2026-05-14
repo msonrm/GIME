@@ -536,6 +536,23 @@ class BubbleService :
             }
             // OSC 無効時は no-op（バブル単体には編集先が無い）
         }
+
+        // バブルは host アプリの InputConnection を持たないため、Ctrl+Enter を実 KeyEvent
+        // としては送れない。LT+LS chord は VRChat 運用では「送信」と同義になるよう、
+        // 通常の commit と同じ OSC 送信パスに倒す（chord が無反応になるよりは自然）。
+        inputManager.onCtrlEnter = {
+            val out = vrChatOutput
+            if (out != null && vrChatAccumulated.isNotEmpty() && composingText.isEmpty()) {
+                val sent = vrChatAccumulated
+                out.commit(sent)
+                vrChatAccumulated = ""
+                refreshDraftPreview()
+                scheduleTranslationFollowup(sent)
+                if (vrChatSettings?.autoReleaseAfterSend == true) {
+                    bubbleView?.setActive(false)
+                }
+            }
+        }
     }
 
     // MARK: - ヘルパー

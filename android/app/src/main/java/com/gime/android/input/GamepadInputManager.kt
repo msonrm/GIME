@@ -187,6 +187,9 @@ class GamepadInputManager {
     var onCursorMove: ((offset: Int) -> Unit)? = null
     var onCursorMoveVertical: ((direction: Int) -> Unit)? = null
     var onConfirmOrNewline: (() -> Unit)? = null
+    /// LT 押下中の LS click で発火。Slack/Discord 等の「Ctrl+Enter で送信」用に IME 経由で
+    /// Ctrl+Enter を host アプリへ送る想定。実装側で no-op にしてもよい。
+    var onCtrlEnter: (() -> Unit)? = null
     var onConvert: (() -> Unit)? = null
     var onGetLastCharacter: (() -> Char?)? = null
 
@@ -237,6 +240,9 @@ class GamepadInputManager {
     // トリガー状態
     private var rtDuringLT = false
     private var rtUsed = false
+    /// LT+LS click で Ctrl+Enter を発火したフレーム以降、LT release 側の後処理
+    /// （拗音後置/Smart Caps/ㅇ받침 等）を抑止するためのフラグ。LT release で消費。
+    private var ltConsumedByCtrlEnter = false
     // 「っ」出力後に「ん」発火を抑止する期限（uptimeMillis）
     private var nBlockUntil: Long = 0
     private var prevLT = false
@@ -445,6 +451,14 @@ class GamepadInputManager {
         val rtNow = if (prevRT) gp.rtValue > triggerReleaseThreshold
                     else gp.rtValue > triggerPressThreshold
         val lbNow = gp.lb
+
+        // 新しい LT press edge ではモード共通で ltConsumedByCtrlEnter をクリアする。
+        // Devanagari/Chinese など LT release で flag を消費しないモードを経由したあとの
+        // stale 抑止を防ぐ。各モード固有の LT release handler 側でも reset しているが、
+        // ここでの reset が安全網となる。
+        if (ltNow && !prevLT) {
+            ltConsumedByCtrlEnter = false
+        }
 
         val row = resolveConsonantRow(consonant)
 
@@ -789,7 +803,36 @@ class GamepadInputManager {
             lastLsEdgeTime = now
             val isChinese = currentMode == GamepadInputMode.CHINESE_SIMPLIFIED ||
                     currentMode == GamepadInputMode.CHINESE_TRADITIONAL
-            when {
+            // LT 押下中の LS click = Ctrl+Enter（Slack/Discord 等の「送信」用、お試し実装）。
+            // composing 中はまず確定してから Ctrl+Enter を送る。LT release 側の後処理は
+            // ltConsumedByCtrlEnter で抑止する。Devanagari の RT+LS click（改行）と
+            // 衝突しないよう、RT 同時押し時は通常経路に戻す。
+            val ctrlEnterRequested = gp.ltValue > triggerPressThreshold &&
+                    !(currentMode == GamepadInputMode.DEVANAGARI && gp.rtValue > triggerPressThreshold)
+            if (ctrlEnterRequested) {
+                when {
+                    currentMode == GamepadInputMode.JAPANESE && isConverting -> commitConversion()
+                    currentMode == GamepadInputMode.JAPANESE && hiraganaBuffer.isNotEmpty() -> resetComposingState()
+                    isChinese && pinyinCandidates.isNotEmpty() -> {
+                        val candidate = pinyinCandidates.getOrNull(pinyinSelectedIndex)
+                        if (candidate != null) {
+                            onDirectInsert?.invoke(candidate.word, 0)
+                            pinyinBuffer = ""
+                            zhuyinDisplayBuffer = ""
+                            pinyinCandidates = emptyList()
+                            pinyinSelectedIndex = 0
+                            pinyinWindowStart = 0
+                        }
+                    }
+                    currentMode == GamepadInputMode.KOREAN -> {
+                        commitKoreanComposer()
+                        releaseKoreanSmartJamo()
+                        resetJamoState()
+                    }
+                }
+                onCtrlEnter?.invoke()
+                ltConsumedByCtrlEnter = true
+            } else when {
                 currentMode == GamepadInputMode.JAPANESE && isConverting -> {
                     commitConversion()
                 }
@@ -821,6 +864,13 @@ class GamepadInputManager {
                         // 切替える必要がある（例: स्त्य = sibilant → varga → semivowel）
                         // ので、halant 自動挿入を効かせるには state 保持が必須。
                         devaNonVargaActive = !devaNonVargaActive
+                        // L3 click は LS 状態のリセットを兼ねる: トグル前後で latch が
+                        // 温存されると「押し込み中に傾けた方向が次の click まで残る」
+                        // 「傾けた状態で 2 回 click すると latch だけ残る」等が起きて
+                        // 直感に反するため、毎 click で NEUTRAL に戻す。
+                        // prevDevaRawLsDir は触らない（押し込み中に LS を傾けっぱなしの
+                        // 場合、リセット直後に同方向で再 latch されてしまうため）。
+                        devaLsDir = DevaLsDirection.NEUTRAL
                     }
                 }
                 else -> {
@@ -978,12 +1028,19 @@ class GamepadInputManager {
         }
 
         // --- LT/RT 状態追跡 ---
-        if (ltNow && !prevLT) { rtDuringLT = false }
+        if (ltNow && !prevLT) {
+            rtDuringLT = false
+            // モード切替や Devanagari など、LT release で消費されないパスに残ったゴミ
+            // を新しい LT press のたびにクリア（stale flag 防止）。
+            ltConsumedByCtrlEnter = false
+        }
         if (ltNow && rtNow) { rtDuringLT = true; rtUsed = true }
 
         // --- LT リリース: 拗音後置シフト / LT+RT=っ ---
         if (!ltNow && prevLT) {
-            if (rtDuringLT) {
+            if (ltConsumedByCtrlEnter) {
+                // LT+LS click で Ctrl+Enter として消費済み。拗音後置や「っ」は発火させない。
+            } else if (rtDuringLT) {
                 // LT+RT → っ（「っ」は LT+RT 専用）
                 emitKana("っ", 0)
                 // この直後の RT のジッター/バウンドで「ん」が誤発火しないよう、
@@ -999,6 +1056,7 @@ class GamepadInputManager {
                 // マッピングなし or 文字なし → 何もしない（「っ」を出したい場合は LT+RT を使う）
             }
             rtDuringLT = false
+            ltConsumedByCtrlEnter = false
         }
 
         // --- RT リリース: 「ん」（LT中でなく、未消費で、抑止期間外のみ）---
@@ -1267,7 +1325,9 @@ class GamepadInputManager {
         }
 
         if (!ltNow && prevLT) {
-            if (englishLTHolding) {
+            if (ltConsumedByCtrlEnter) {
+                // LT+LS click で Ctrl+Enter として消費済み。ShiftNext / SmartCaps は発火させない。
+            } else if (englishLTHolding) {
                 // 長押し閾値未達 → 短押し判定
                 if ((now - lastLTReleaseTime) < doubleTapWindow) {
                     // 短押し2度押し → Smart Caps
@@ -1280,6 +1340,7 @@ class GamepadInputManager {
             }
             englishLTHolding = false
             lastLTReleaseTime = now
+            ltConsumedByCtrlEnter = false
         }
 
         // 母音ボタンで文字入力
@@ -1568,7 +1629,12 @@ class GamepadInputManager {
 
         // リリースエッジ: 短押し（長押し未達）の処理
         if (!ltNow && prevLT) {
-            if (koreanLTHolding) {
+            if (ltConsumedByCtrlEnter) {
+                // LT+LS click で Ctrl+Enter として消費済み。Smart Jamo / 자모 / ㅇ받침 は
+                // 発火させない。flag は Japanese 側の LT release ブロックでも消費するが、
+                // Korean mode では Japanese 側を通らないのでここでも明示的に reset する。
+                ltConsumedByCtrlEnter = false
+            } else if (koreanLTHolding) {
                 val sinceLastRelease = now - lastKoreanLTReleaseTime
                 if (sinceLastRelease < doubleTapWindow) {
                     // 2 回目の短押し → Smart Jamo トグル

@@ -1,6 +1,7 @@
 package com.gime.android.ime
 
 import android.inputmethodservice.InputMethodService
+import android.os.SystemClock
 import android.util.Log
 import android.view.InputDevice
 import android.view.KeyEvent
@@ -319,8 +320,16 @@ class GimeInputMethodService :
 
     // MARK: - ハードウェアキー受信
 
+    /// IME ビューが表示中（ユーザーが入力欄にフォーカスして GIME を開いている状態）
+    /// のときだけゲームパッドイベントを消費する。表示されていないとき
+    /// （ゲーム等で入力欄にフォーカスが無い、もしくはユーザーが IME を引っ込めた）
+    /// は false を返してイベントをフォアグラウンドのアプリに素通りさせる。
+    /// これがないと、GIME を既定 IME に登録するだけでゲーム中もコントローラー
+    /// 入力が IME に吸われて操作不能になる。
+    private fun shouldHandleGamepad(): Boolean = isInputViewShown()
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        if (event != null && GamepadSnapshot.isGamepad(event.device)) {
+        if (event != null && GamepadSnapshot.isGamepad(event.device) && shouldHandleGamepad()) {
             ensureConnected(event.device)
             currentSnapshot = GamepadSnapshot.updateFromKeyEvent(event, pressed = true, currentSnapshot)
             inputManager.updateSnapshot(currentSnapshot)
@@ -331,7 +340,7 @@ class GimeInputMethodService :
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
-        if (event != null && GamepadSnapshot.isGamepad(event.device)) {
+        if (event != null && GamepadSnapshot.isGamepad(event.device) && shouldHandleGamepad()) {
             currentSnapshot = GamepadSnapshot.updateFromKeyEvent(event, pressed = false, currentSnapshot)
             inputManager.updateSnapshot(currentSnapshot)
             inputView?.updateStatus()
@@ -341,7 +350,7 @@ class GimeInputMethodService :
     }
 
     override fun onGenericMotionEvent(event: MotionEvent?): Boolean {
-        if (event != null && handleMotionEvent(event)) {
+        if (event != null && shouldHandleGamepad() && handleMotionEvent(event)) {
             inputView?.updateStatus()
             return true
         }
@@ -355,6 +364,21 @@ class GimeInputMethodService :
         currentSnapshot = GamepadSnapshot.fromMotionEvent(event, currentSnapshot)
         inputManager.updateSnapshot(currentSnapshot)
         return true
+    }
+
+    /// IME が表示・非表示に切り替わるタイミングでスナップショットを初期化する。
+    /// これがないと、非表示中に押されたボタンの状態が次に IME が出たとき
+    /// （別のチャット欄を開いたとき等）に持ち越されてしまう。
+    override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
+        super.onStartInputView(info, restarting)
+        currentSnapshot = GamepadSnapshot()
+        inputManager.updateSnapshot(currentSnapshot)
+    }
+
+    override fun onFinishInputView(finishingInput: Boolean) {
+        currentSnapshot = GamepadSnapshot()
+        inputManager.updateSnapshot(currentSnapshot)
+        super.onFinishInputView(finishingInput)
     }
 
     // MARK: - InputConnection 出力配線
@@ -529,6 +553,32 @@ class GimeInputMethodService :
 
         inputManager.onGetLastCharacter = {
             currentInputConnection?.getTextBeforeCursor(1, 0)?.lastOrNull()
+        }
+
+        inputManager.onCtrlEnter = {
+            // Slack/Discord/X/ChatGPT 等で「Ctrl+Enter で送信」する用途。
+            // VRChat OSC モードでは Ctrl+Enter の意味がないので、通常の commit に倒す。
+            val out = vrChatOutput
+            if (out != null && vrChatAccumulated.isNotEmpty() && imeComposingText.isEmpty()) {
+                val sent = vrChatAccumulated
+                out.commit(sent)
+                vrChatAccumulated = ""
+                updateDraftLength()
+                scheduleTranslationFollowup(sent)
+            } else {
+                val ic = currentInputConnection
+                if (ic != null) {
+                    val meta = KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON
+                    ic.sendKeyEvent(KeyEvent(
+                        SystemClock.uptimeMillis(), SystemClock.uptimeMillis(),
+                        KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0, meta,
+                    ))
+                    ic.sendKeyEvent(KeyEvent(
+                        SystemClock.uptimeMillis(), SystemClock.uptimeMillis(),
+                        KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER, 0, meta,
+                    ))
+                }
+            }
         }
     }
 

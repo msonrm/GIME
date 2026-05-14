@@ -694,6 +694,13 @@ final class GamepadInputManager {
                     // 切替える必要がある（例: स्त्य = sibilant → varga → semivowel）
                     // ので、halant 自動挿入を効かせるには state 保持が必須。
                     devaNonVargaActive.toggle()
+                    // L3 click は LS 状態のリセットを兼ねる: トグル前後で latch が
+                    // 温存されると「押し込み中に傾けた方向が次の click まで残る」
+                    // 「傾けた状態で 2 回 click すると latch だけ残る」等が起きて
+                    // 直感に反するため、毎 click で NEUTRAL に戻す。
+                    // prevDevaRawLsDir は触らない（押し込み中に LS を傾けっぱなしの
+                    // 場合、リセット直後に同方向で再 latch されてしまうため）。
+                    devaLsDir = .neutral
                 }
             } else {
                 executeAction(.confirmOrNewline)
