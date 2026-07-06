@@ -5,7 +5,8 @@ import android.content.Context
 /**
  * IME 本体 UI の設定（compact モード等）。
  *
- * SharedPreferences ラッパー。
+ * BubbleSettings と同じ作法の SharedPreferences ラッパー。
+ * キーは bubble_ui とは別ファイルにしてバブル/IME を独立に切り替え可能に。
  */
 class ImeUiSettings(context: Context) {
     private val prefs = context.applicationContext

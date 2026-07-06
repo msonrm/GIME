@@ -21,8 +21,10 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.gime.android.bubble.BubbleService
 import com.gime.android.engine.PinyinEngine
 import com.gime.android.input.GamepadInputManager
+import com.gime.android.osc.VrChatOscSettings
 import com.kazumaproject.markdownhelperkeyboard.repository.LearnRepository
 import com.kazumaproject.markdownhelperkeyboard.repository.UserDictionaryRepository
 
@@ -41,7 +43,17 @@ fun GimeApp(
     val context = LocalContext.current
     var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
     var showDictionary by remember { mutableStateOf(false) }
+    var showVrChat by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+
+    // ビジュアライザ右上の VRChat OSC バッジ用。
+    // VrChatScreen から戻ってきたタイミングで再読込（シンプルな SharedPreferences 反映）
+    var vrChatEnabled by remember { mutableStateOf(VrChatOscSettings(context).enabled) }
+    LaunchedEffect(showVrChat) {
+        if (!showVrChat) {
+            vrChatEnabled = VrChatOscSettings(context).enabled
+        }
+    }
 
     if (showDictionary && userDict != null && learnRepo != null) {
         DictionaryScreen(
@@ -49,6 +61,10 @@ fun GimeApp(
             learnRepo = learnRepo,
             onClose = { showDictionary = false },
         )
+        return
+    }
+    if (showVrChat) {
+        VrChatScreen(onClose = { showVrChat = false })
         return
     }
     if (showSettings) {
@@ -176,6 +192,21 @@ fun GimeApp(
                             as android.view.inputmethod.InputMethodManager
                     imm.showInputMethodPicker()
                 }) { Text("IME切替") }
+                TextButton(onClick = { showVrChat = true }) { Text("VRChat") }
+                TextButton(onClick = {
+                    if (BubbleService.hasOverlayPermission(context)) {
+                        BubbleService.start(context)
+                        // バブル単体でゲームパッド入力を受け取れるようアクティビティは閉じる。
+                        (context as? android.app.Activity)?.moveTaskToBack(true)
+                    } else {
+                        context.startActivity(
+                            android.content.Intent(
+                                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                android.net.Uri.parse("package:" + context.packageName),
+                            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                }) { Text("バブル") }
                 if (userDict != null && learnRepo != null) {
                     TextButton(onClick = { showDictionary = true }) { Text("辞書") }
                 }
@@ -217,6 +248,9 @@ fun GimeApp(
             // ゲームパッドビジュアライザ
             GamepadVisualizer(
                 inputManager = inputManager,
+                vrChatEnabled = vrChatEnabled,
+                onVrChatBadgeClick = { showVrChat = true },
+                chatboxLength = textFieldValue.text.length,
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -230,9 +264,18 @@ fun GimeApp(
 @Composable
 fun GamepadVisualizer(
     inputManager: GamepadInputManager,
+    vrChatEnabled: Boolean = false,
+    onVrChatBadgeClick: () -> Unit = {},
     /// compact モードでは D-pad 配列情報を省き、composing / 候補行のみ表示する。
-    /// 省スペースモード。
+    /// バブル表示で慣れたユーザー向けの省スペースモード。
     compact: Boolean = false,
+    /// VRChat OSC アクティブバッジを表示するか。
+    /// バブル（VRChat 専用運用）では冗長なので false。MainActivity / IME は true。
+    showVrChatBadge: Boolean = true,
+    /// chatbox に送る下書きの長さ。VrChatOscOutput.MAX_CHATBOX_LEN と突き合わせて
+    /// `N/144` カウンターをバッジ横に出す。0 のときは非表示。バブル側は
+    /// タイトルバーで別途カウンターを出すので showVrChatBadge=false の際は隠す。
+    chatboxLength: Int = 0,
 ) {
     // compact モードでは外枠の背景とパディングを省いて省スペース化。
     // 内部の composing/候補ブロックは個別に背景を持っているので見栄えは崩れない。
@@ -245,6 +288,20 @@ fun GamepadVisualizer(
             .padding(12.dp)
     }
     Column(modifier = outerModifier) {
+        // VRChat OSC 有効時のバッジ（iPad 版と対称。タップで VRChat 設定画面を開く）
+        if (vrChatEnabled && showVrChatBadge) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                VrChatActiveBadge(onClick = onVrChatBadgeClick)
+                if (chatboxLength > 0) {
+                    ChatboxLengthCounter(length = chatboxLength)
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
         // かな漢字変換エンジンのエラー（診断用。logcat 代替）
         val jpError = inputManager.japaneseConverter?.lastError
         if (jpError != null) {
@@ -467,7 +524,7 @@ private fun dpadDirectionForRow(row: Int): Int = when (row) {
 /// 一致させた「縦方向のズレが最小化された」テキストスタイル。
 /// ボタンのラベル文字列など、Box の Center に置いたときに上下対称に見えるように
 /// 全ボタン系（D-pad / フェイス / スティック / ショルダー / 言語ラベル等）で
-/// 共通利用する。`internal` で GimeInputView からも参照可能。
+/// 共通利用する。`internal` で BubbleView / GimeInputView からも参照可能。
 internal fun tightTextStyle(
     fontSize: androidx.compose.ui.unit.TextUnit,
     color: Color,
@@ -1190,3 +1247,54 @@ fun Badge(
     }
 }
 
+/// VRChat OSC 有効時のバッジ。iPad 版と同じく紫系カプセル + 紙飛行機絵文字。
+/// タップで VRChat 設定画面を開く。
+@Composable
+private fun VrChatActiveBadge(onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .background(
+                color = androidx.compose.ui.graphics.Color(0xFF8E24AA), // purple 600
+                shape = RoundedCornerShape(percent = 50),
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = "\u2708\uFE0F",  // ✈️ paper-plane (emoji variation)
+            color = Color.White,
+            fontSize = 11.sp,
+        )
+        Text(
+            text = "VRChat OSC",
+            color = Color.White,
+            fontSize = 12.sp,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+        )
+    }
+}
+
+/// chatbox の下書き文字数カウンター。`N/144` 形式で表示し、超過時は赤く反転。
+/// 144 文字を超えた分は VrChatOscOutput が黙ってトリムするため、その警告を
+/// ユーザーに見せるためのもの。
+@Composable
+private fun ChatboxLengthCounter(length: Int) {
+    val max = com.gime.android.osc.VrChatOscOutput.MAX_CHATBOX_LEN
+    val over = length >= max
+    val bg = if (over) MaterialTheme.colorScheme.error
+             else MaterialTheme.colorScheme.surfaceContainerHigh
+    val fg = if (over) MaterialTheme.colorScheme.onError
+             else MaterialTheme.colorScheme.onSurfaceVariant
+    Text(
+        text = "$length/$max",
+        color = fg,
+        fontSize = 11.sp,
+        fontWeight = if (over) androidx.compose.ui.text.font.FontWeight.SemiBold
+                     else androidx.compose.ui.text.font.FontWeight.Normal,
+        modifier = Modifier
+            .background(bg, RoundedCornerShape(percent = 50))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    )
+}

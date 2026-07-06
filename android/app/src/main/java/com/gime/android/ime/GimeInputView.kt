@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.gime.android.osc.VrChatOscSettings
 import com.gime.android.settings.ImeUiSettings
 import com.gime.android.ui.CandidateOverlay
 import com.gime.android.ui.DpadDisplay
@@ -108,6 +109,7 @@ class GimeInputView(
             GimeTheme {
                 val imeSettings = remember { ImeUiSettings(context) }
                 var compact by remember { mutableStateOf(imeSettings.compactMode) }
+                val oscEnabled = remember { VrChatOscSettings(context).enabled }
 
                 // 外側の Column に navigationBarsPadding を入れて、IME 下端が
                 // gesture pill / ナビゲーションバーに被らないようにする。
@@ -157,6 +159,8 @@ class GimeInputView(
                             modeLabel = service.inputManager.currentMode.label,
                             isConnected = service.inputManager.isConnected,
                             compact = compact,
+                            vrChatEnabled = oscEnabled,
+                            chatboxLength = service.draftLengthState.intValue,
                             onToggleCompact = {
                                 compact = !compact
                                 imeSettings.compactMode = compact
@@ -223,12 +227,16 @@ class GimeInputView(
 }
 
 /// IME 内 compact タイトルバー。
-/// ▾/▸ で compact 切替、× は出さない（IME はキーボードスイッチャで切替えるのが筋）。
+/// バブルの TitleBar と同じ作法（▾/▸ で compact 切替、× は出さない＝IME は
+/// キーボードスイッチャで切替えるのが筋）。VRChat OSC バッジ + chatbox 文字数も
+/// 右寄せで揃える。
 @androidx.compose.runtime.Composable
 private fun CompactTitleBar(
     modeLabel: String,
     isConnected: Boolean,
     compact: Boolean,
+    vrChatEnabled: Boolean,
+    chatboxLength: Int,
     onToggleCompact: () -> Unit,
 ) {
     Row(
@@ -261,6 +269,12 @@ private fun CompactTitleBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+            if (vrChatEnabled) {
+                VrChatChip()
+                if (chatboxLength > 0) {
+                    ChatboxLengthChip(length = chatboxLength)
+                }
+            }
             TitleIconButton(
                 label = if (compact) "▾" else "▴", // ▾ expand / ▴ collapse
                 onClick = onToggleCompact,
@@ -287,6 +301,42 @@ private fun ModeChip(label: String) {
             ),
         )
     }
+}
+
+@androidx.compose.runtime.Composable
+private fun VrChatChip() {
+    Box(
+        modifier = Modifier
+            .height(20.dp)
+            .clip(RoundedCornerShape(percent = 50))
+            .background(Color(0xFF8E24AA)) // purple 600
+            .padding(horizontal = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = "✈️",  // ✈
+            color = Color.White,
+            fontSize = 11.sp,
+        )
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun ChatboxLengthChip(length: Int) {
+    val max = com.gime.android.osc.VrChatOscOutput.MAX_CHATBOX_LEN
+    val over = length >= max
+    val bg = if (over) MaterialTheme.colorScheme.error
+             else MaterialTheme.colorScheme.surfaceContainerHigh
+    val fg = if (over) MaterialTheme.colorScheme.onError
+             else MaterialTheme.colorScheme.onSurfaceVariant
+    Text(
+        text = "$length/$max",
+        fontSize = 10.sp,
+        color = fg,
+        modifier = Modifier
+            .background(bg, RoundedCornerShape(percent = 50))
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+    )
 }
 
 @androidx.compose.runtime.Composable

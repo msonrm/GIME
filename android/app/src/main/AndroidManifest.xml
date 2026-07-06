@@ -1,9 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- 純 IME 化（2026-07 VRChat 連携撤去）に伴い、ネットワーク・オーバーレイ・
-         フォアグラウンドサービス系の権限はすべて不要になった。IME バインドは
-         GimeInputMethodService の android:permission=BIND_INPUT_METHOD で担保される。 -->
+    <!-- VRChat OSC 連携で UDP 送受信に使用（ユーザーが明示的に有効化するまでソケットは開かない） -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- バブル表示（ビジュアライザ単体のフローティング表示）で使用 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="true"
@@ -37,6 +42,17 @@
             <meta-data
                 android:name="android.view.im"
                 android:resource="@xml/method" />
+        </service>
+
+        <!-- バブル表示サービス: ビジュアライザのみをフローティングオーバーレイで表示し、
+             ゲームパッド入力を受けて VRChat OSC に送信する。 -->
+        <service
+            android:name=".bubble.BubbleService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Floating gamepad visualizer overlay for VRChat OSC input" />
         </service>
     </application>
 
