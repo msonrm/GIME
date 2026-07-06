@@ -223,6 +223,13 @@ class GamepadInputManager {
     // 当初 120ms で導入したが実機で 2 度押し化が頻発するため 250ms に拡張。
     // 意図的な double-tap には LS を使っていないので副作用なし。
     private val lsDebounceMs: Long = 250L
+    // 右スティック↓エッジの debounce。アナログスティックを「中立 ↔ 下倒し」境界で
+    // 振動させると、ハード/OS レベルで多重エッジが観測されて rStickDownTapCount が
+    // 意図せず急増し、句読点サイクル（、→。→ スペース。2 打目以降は直前の文字を
+    // 削除して差し替えるため誤爆が目立つ）が暴走する。前回採用した RS↓ エッジから
+    // この時間内の再エッジは無視する。意図的な再タップは rStickTapWindow(700ms) 前提で
+    // 十分間隔が空くため副作用なし。
+    private val rsDownDebounceMs: Long = 80L
     private val chordWindow: Long = 300L  // ms
     private val doubleTapWindow: Long = 400L
     private val rStickTapWindow: Long = 700L  // アナログスティック往復分を考慮して広め
@@ -254,6 +261,8 @@ class GamepadInputManager {
     // 右スティック
     private var rStickDownLastTime: Long = 0
     private var rStickDownTapCount: Int = 0
+    // RS↓ debounce 用: 最後に採用した RS↓ 立ち上がりエッジの時刻
+    private var lastRsDownEdgeTime: Long = 0
     private var prevRStickUp = false
     private var prevRStickDown = false
     private var prevRStickLeft = false
@@ -616,7 +625,9 @@ class GamepadInputManager {
         }
 
         // --- 右スティック ↓ : 言語別の句読点サイクル（中国語候補中は次候補）---
-        if (rStickDown && !prevRStickDown) {
+        // アナログスティックのチャタリング対策として rsDownDebounceMs 以内の再エッジは無視する。
+        if (rStickDown && !prevRStickDown && now >= lastRsDownEdgeTime + rsDownDebounceMs) {
+            lastRsDownEdgeTime = now
             val chineseCandidateMode = (currentMode == GamepadInputMode.CHINESE_SIMPLIFIED ||
                     currentMode == GamepadInputMode.CHINESE_TRADITIONAL) &&
                     pinyinCandidates.isNotEmpty()
