@@ -58,6 +58,9 @@ final class PinyinEngine {
     /// 中国語変異体（簡体/繁体の切り替え）
     var variant: ChineseVariant = .simplified
 
+    /// デバッグログ出力コールバック（GamepadInputManager と同方式。未設定なら何も出力しない）
+    var debugLog: ((String) -> Void)?
+
     /// 辞書がロード済みかどうか
     private(set) var isSimplifiedLoaded = false
     private(set) var isTraditionalLoaded = false
@@ -70,7 +73,7 @@ final class PinyinEngine {
     func loadSimplified() {
         guard !isSimplifiedLoaded else { return }
         guard let url = Bundle.module.url(forResource: "pinyin_abbrev", withExtension: "json") else {
-            print("[PinyinEngine] pinyin_abbrev.json not found")
+            debugLog?("[PinyinEngine] pinyin_abbrev.json not found")
             return
         }
         do {
@@ -80,9 +83,9 @@ final class PinyinEngine {
                 entries.map { PinyinCandidate(word: $0.w, reading: $0.p) }
             }
             isSimplifiedLoaded = true
-            print("[PinyinEngine] Simplified: \(simplifiedIndex.count) keys")
+            debugLog?("[PinyinEngine] Simplified: \(simplifiedIndex.count) keys")
         } catch {
-            print("[PinyinEngine] Failed to load simplified: \(error)")
+            debugLog?("[PinyinEngine] Failed to load simplified: \(error)")
         }
     }
 
@@ -90,7 +93,7 @@ final class PinyinEngine {
     func loadTraditional() {
         guard !isTraditionalLoaded else { return }
         guard let url = Bundle.module.url(forResource: "zhuyin_abbrev", withExtension: "json") else {
-            print("[PinyinEngine] zhuyin_abbrev.json not found")
+            debugLog?("[PinyinEngine] zhuyin_abbrev.json not found")
             return
         }
         do {
@@ -100,9 +103,9 @@ final class PinyinEngine {
                 entries.map { PinyinCandidate(word: $0.w, reading: $0.z) }
             }
             isTraditionalLoaded = true
-            print("[PinyinEngine] Traditional: \(traditionalIndex.count) keys")
+            debugLog?("[PinyinEngine] Traditional: \(traditionalIndex.count) keys")
         } catch {
-            print("[PinyinEngine] Failed to load traditional: \(error)")
+            debugLog?("[PinyinEngine] Failed to load traditional: \(error)")
         }
     }
 
