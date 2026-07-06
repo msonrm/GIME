@@ -1,13 +1,12 @@
 # Privacy Policy — GIME for Android
 
-*Last updated: April 25, 2026*
+*Last updated: July 7, 2026*
 
 ## Overview
 
 GIME for Android ("the App") is a multilingual text input tool for Android
-that uses a game controller. The App can function as a system Input Method
-(IME) and optionally route input to VRChat via OSC. This privacy policy
-explains how the App handles user data.
+that uses a game controller. The App functions as a system Input Method
+(IME). This privacy policy explains how the App handles user data.
 
 ## Data Collection
 
@@ -23,29 +22,12 @@ Specifically:
   tracking pixels, or telemetry of any kind.
 - **No user accounts** — The App does not require sign-in.
 
-## Network Communication (OSC Feature)
+## Network Communication
 
-The App contains an **opt-in** VRChat OSC integration feature. This feature
-is **disabled by default**. The behavior is:
-
-- **When OSC mode is OFF** (default): The App makes no network communication.
-  No sockets are opened.
-- **When OSC mode is ON** (user-enabled in settings):
-  - The App opens a UDP socket and sends OSC messages to the IP address and
-    port that the user explicitly configured in the settings screen
-    (default `127.0.0.1:9000`).
-  - The data sent consists exclusively of:
-    - The text the user is composing or has confirmed for chatbox
-    - Typing indicator status (true / false)
-  - The destination is **only the user-specified IP and port**. No data is
-    sent to the developer's servers, third-party analytics, or other
-    destinations.
-  - The transmission is over UDP and **not encrypted**. Users should only
-    use this feature on networks they trust (typically a home LAN).
-- **Optional debug receiver** (also opt-in): When enabled, the App opens
-  a UDP socket to receive OSC messages on the user-specified port. Received
-  messages are displayed in the in-app debug log only and are not stored or
-  transmitted.
+**The App makes no network communication of any kind.** It opens no sockets
+and contains no networking code. (A prior VRChat OSC integration and an
+on-device translation feature were removed in July 2026; the App is now a
+purely local IME.)
 
 ## On-Device Storage
 
@@ -56,18 +38,19 @@ The App stores the following data locally on your device only:
 - **Learning history** — Reading→surface pairs accumulated as you confirm
   conversions, stored in the same Room database for prediction quality
   improvement. Can be reset via the dictionary screen.
-- **App settings** — Including OSC settings (enabled state, IP, port) and
-  language mode preferences (which input modes are enabled and their
-  cycle order), stored via SharedPreferences.
+- **App settings** — Language mode preferences (which input modes are
+  enabled and their cycle order) and UI settings, stored via
+  SharedPreferences.
 
 This data never leaves your device and is automatically deleted when you
 uninstall the App.
 
 ## Permissions
 
-- `android.permission.INTERNET` — Required only for the optional VRChat OSC
-  feature (UDP send/receive). When OSC mode is OFF, no network sockets are
-  opened.
+The App declares **no Android runtime permissions**. It makes no network
+communication and requires no storage, camera, microphone, or overlay access.
+(IME binding is granted by the system via `BIND_INPUT_METHOD` when the user
+enables GIME as a keyboard.)
 
 ## Third-Party Services
 

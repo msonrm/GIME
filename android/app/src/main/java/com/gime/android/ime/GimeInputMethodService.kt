@@ -8,7 +8,6 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -26,12 +25,6 @@ import com.gime.android.engine.PinyinEngine
 import com.gime.android.input.GamepadInputManager
 import com.gime.android.input.GamepadSnapshot
 import com.gime.android.learn.DatabaseProvider
-import com.gime.android.osc.OscSender
-import com.gime.android.osc.TranslationTarget
-import com.gime.android.osc.VrChatOscOutput
-import com.gime.android.osc.VrChatOscSettings
-import com.gime.android.translate.ChineseConverter
-import com.gime.android.translate.TranslatorManager
 import com.kazumaproject.markdownhelperkeyboard.repository.LearnRepository
 import com.kazumaproject.markdownhelperkeyboard.repository.UserDictionaryRepository
 import kotlinx.coroutines.CoroutineScope
@@ -82,90 +75,6 @@ class GimeInputMethodService :
     private var imeComposing = false
     private var imeComposingText = ""
 
-    // VRChat OSC 連携（Phase A7-3/4）
-    private var vrChatSettings: VrChatOscSettings? = null
-    private var vrChatOutput: VrChatOscOutput? = null
-    private val translator = TranslatorManager()
-
-    /// VRChat モードで LS 送信するまでの累積テキスト（確定済み文節 + 句読点）。
-    /// 現在 composing 中の `imeComposingText` はまだ含まない。
-    /// chatbox 下書きとしてユーザーに見せているのは `vrChatAccumulated + imeComposingText`。
-    private var vrChatAccumulated: String = ""
-
-    /// ビジュアライザのカウンター表示用。Compose 観測可能な状態として保持。
-    /// `vrChatAccumulated + imeComposingText` の文字数を手で同期する。
-    val draftLengthState = mutableIntStateOf(0)
-
-    private fun updateDraftLength() {
-        draftLengthState.intValue = vrChatAccumulated.length + imeComposingText.length
-    }
-
-    /// chatbox の下書きを今の状態から再送する。VRChat モード ON 時のみ呼ぶ。
-    private fun sendVrChatDraft() {
-        updateDraftLength()
-        val out = vrChatOutput ?: return
-        val draft = vrChatAccumulated + imeComposingText
-        out.sendComposingText(draft)
-    }
-
-    /// 二段送信翻訳。`commit()` 直後に呼び、裏で翻訳して notification=false で
-    /// 上書き送信する。設定 OFF・モデル未 DL・空文字なら何もしない。
-    /// `translationOverwriteDelayMs` で「原文を読める時間」を確保する：翻訳と
-    /// 並行カウントして、翻訳完了が遅延より早ければ残り時間を待つ。
-    private fun scheduleTranslationFollowup(originalText: String) {
-        val s = vrChatSettings ?: return
-        val out = vrChatOutput ?: return
-        if (s.translationTarget == TranslationTarget.OFF) return
-        if (originalText.isBlank()) return
-        val wifiOnly = s.translationWifiOnly
-        val delayMs = s.translationOverwriteDelayMs
-        val target = s.translationTarget
-        val commitTime = System.currentTimeMillis()
-        serviceScope.launch {
-            val raw = translator.translate(originalText, wifiOnly) ?: return@launch
-            val translated = if (target.toTraditionalTaiwan) {
-                ChineseConverter.simplifiedToTraditionalTaiwan(raw)
-            } else raw
-            if (translated.isBlank() || translated == originalText) return@launch
-            val remaining = delayMs - (System.currentTimeMillis() - commitTime)
-            if (remaining > 0) kotlinx.coroutines.delay(remaining)
-            out.sendTranslationFollowup(translated)
-        }
-    }
-
-    /// 設定を元に VrChatOscOutput を起動/更新/停止する。
-    private fun refreshVrChatOutput() {
-        val s = vrChatSettings ?: return
-        if (s.enabled) {
-            val customMsgs = s.resolvedCustomTypingMessages()
-            val existing = vrChatOutput
-            if (existing != null) {
-                existing.updateTarget(s.host, s.port)
-                existing.commitOnly = s.commitOnlyMode
-                existing.sendTypingIndicator = s.typingIndicatorEnabled
-                existing.typingStartMessage = customMsgs?.first
-                existing.typingEndMessage = customMsgs?.second
-            } else {
-                try {
-                    val sender = OscSender(s.host, s.port)
-                    vrChatOutput = VrChatOscOutput(sender, serviceScope).apply {
-                        commitOnly = s.commitOnlyMode
-                        sendTypingIndicator = s.typingIndicatorEnabled
-                        typingStartMessage = customMsgs?.first
-                        typingEndMessage = customMsgs?.second
-                    }
-                } catch (t: Throwable) {
-                    Log.e(TAG, "OscSender init failed", t)
-                }
-            }
-            translator.setTarget(s.translationTarget.mlKitCode)
-        } else {
-            vrChatOutput?.close()
-            vrChatOutput = null
-            translator.setTarget(null)
-        }
-    }
-
     override fun onCreate() {
         // SavedStateRegistry は super.onCreate の前に attach / restore する
         // （ComponentActivity の実装順と同じ）。状態は INITIALIZED のままでよい。
@@ -206,10 +115,6 @@ class GimeInputMethodService :
         val modeSettings = com.gime.android.settings.GimeModeSettings(this)
         inputManager.updateEnabledModes(modeSettings.enabledModes)
 
-        // VRChat OSC 設定をロード（enabled 時のみソケットを open する）
-        vrChatSettings = VrChatOscSettings(this)
-        refreshVrChatOutput()
-
         wireCallbacks()
         observeComposingState()
     }
@@ -225,7 +130,6 @@ class GimeInputMethodService :
                         currentInputConnection?.finishComposingText()
                         imeComposing = false
                         imeComposingText = ""
-                        updateDraftLength()
                     }
                 }
         }
@@ -238,9 +142,6 @@ class GimeInputMethodService :
             lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
         } catch (_: Throwable) {}
         Log.d(TAG, "onDestroy")
-        try { vrChatOutput?.close() } catch (_: Throwable) {}
-        vrChatOutput = null
-        try { translator.close() } catch (_: Throwable) {}
         serviceScope.cancel()
         try {
             viewModelStoreInstance.clear()
@@ -251,8 +152,6 @@ class GimeInputMethodService :
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
         Log.d(TAG, "onStartInput restarting=$restarting inputType=${attribute?.inputType}")
-        // 設定変更を拾うため毎セッション refresh
-        refreshVrChatOutput()
         checkConnectedGamepads()
     }
 
@@ -260,7 +159,6 @@ class GimeInputMethodService :
         Log.d(TAG, "onFinishInput")
         imeComposing = false
         imeComposingText = ""
-        updateDraftLength()
         super.onFinishInput()
     }
 
@@ -415,45 +313,16 @@ class GimeInputMethodService :
                     }
                 }
                 ic.endBatchEdit()
-            } else {
-                // InputConnection が無い場合でも VRChat 用の状態は更新する
-                if (nowComposing) {
-                    imeComposingText = if (replaceCount >= imeComposingText.length) text
-                                       else imeComposingText.dropLast(replaceCount) + text
-                    imeComposing = true
-                } else {
-                    if (imeComposing) {
-                        imeComposing = false
-                        imeComposingText = ""
-                    }
-                }
-            }
-
-            // --- VRChat OSC 側（dual output） ---
-            if (vrChatOutput != null) {
-                if (!nowComposing && text.isNotEmpty()) {
-                    // 非 composing の直接 commit（句読点等）→ 累積テキストに追加
-                    vrChatAccumulated += text
-                }
-                sendVrChatDraft()
             }
         }
 
         inputManager.onFinalizeComposing = {
             val ic = currentInputConnection
-            // VRChat: composing を累積に追加してから draft 送信
-            val wasComposing = imeComposing
-            val committedSegment = imeComposingText
-            if (ic != null && wasComposing) {
+            if (ic != null && imeComposing) {
                 ic.finishComposingText()
             }
             imeComposing = false
             imeComposingText = ""
-
-            if (vrChatOutput != null && wasComposing) {
-                vrChatAccumulated += committedSegment
-                sendVrChatDraft()
-            }
         }
 
         inputManager.onDeleteBackward = {
@@ -480,25 +349,6 @@ class GimeInputMethodService :
                         ic.deleteSurroundingText(1, 0)
                     }
                 }
-            } else {
-                // InputConnection が無くても VRChat 側の状態は更新する
-                if (wasComposing) {
-                    val newBuffer = inputManager.hiraganaBuffer
-                    if (newBuffer.isEmpty() && !inputManager.isConverting) {
-                        imeComposing = false
-                        imeComposingText = ""
-                    } else {
-                        imeComposingText = newBuffer
-                    }
-                }
-            }
-
-            if (vrChatOutput != null) {
-                if (!wasComposing && vrChatAccumulated.isNotEmpty()) {
-                    // 非 composing 時の削除 → 累積の末尾 1 文字を削る
-                    vrChatAccumulated = vrChatAccumulated.dropLast(1)
-                }
-                sendVrChatDraft()
             }
         }
 
@@ -524,29 +374,18 @@ class GimeInputMethodService :
         }
 
         inputManager.onConfirmOrNewline = {
-            val out = vrChatOutput
-            if (out != null && vrChatAccumulated.isNotEmpty() && imeComposingText.isEmpty()) {
-                // VRChat モード: 累積を chatbox に即時確定送信
-                // （Enter 入力の代わりに「メッセージ送信」セマンティクス）
-                val sent = vrChatAccumulated
-                out.commit(sent)
-                vrChatAccumulated = ""
-                updateDraftLength()
-                scheduleTranslationFollowup(sent)
-            } else {
-                val ic = currentInputConnection
-                val info = currentInputEditorInfo
-                val action = info?.imeOptions?.and(EditorInfo.IME_MASK_ACTION) ?: EditorInfo.IME_ACTION_NONE
-                val noEnterAction = (info?.imeOptions?.and(EditorInfo.IME_FLAG_NO_ENTER_ACTION) ?: 0) != 0
-                val hasNoAction = noEnterAction ||
-                    action == EditorInfo.IME_ACTION_NONE ||
-                    action == EditorInfo.IME_ACTION_UNSPECIFIED
-                if (ic != null) {
-                    if (hasNoAction) {
-                        ic.commitText("\n", 1)
-                    } else {
-                        ic.performEditorAction(action)
-                    }
+            val ic = currentInputConnection
+            val info = currentInputEditorInfo
+            val action = info?.imeOptions?.and(EditorInfo.IME_MASK_ACTION) ?: EditorInfo.IME_ACTION_NONE
+            val noEnterAction = (info?.imeOptions?.and(EditorInfo.IME_FLAG_NO_ENTER_ACTION) ?: 0) != 0
+            val hasNoAction = noEnterAction ||
+                action == EditorInfo.IME_ACTION_NONE ||
+                action == EditorInfo.IME_ACTION_UNSPECIFIED
+            if (ic != null) {
+                if (hasNoAction) {
+                    ic.commitText("\n", 1)
+                } else {
+                    ic.performEditorAction(action)
                 }
             }
         }
@@ -557,27 +396,17 @@ class GimeInputMethodService :
 
         inputManager.onCtrlEnter = {
             // Slack/Discord/X/ChatGPT 等で「Ctrl+Enter で送信」する用途。
-            // VRChat OSC モードでは Ctrl+Enter の意味がないので、通常の commit に倒す。
-            val out = vrChatOutput
-            if (out != null && vrChatAccumulated.isNotEmpty() && imeComposingText.isEmpty()) {
-                val sent = vrChatAccumulated
-                out.commit(sent)
-                vrChatAccumulated = ""
-                updateDraftLength()
-                scheduleTranslationFollowup(sent)
-            } else {
-                val ic = currentInputConnection
-                if (ic != null) {
-                    val meta = KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON
-                    ic.sendKeyEvent(KeyEvent(
-                        SystemClock.uptimeMillis(), SystemClock.uptimeMillis(),
-                        KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0, meta,
-                    ))
-                    ic.sendKeyEvent(KeyEvent(
-                        SystemClock.uptimeMillis(), SystemClock.uptimeMillis(),
-                        KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER, 0, meta,
-                    ))
-                }
+            val ic = currentInputConnection
+            if (ic != null) {
+                val meta = KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON
+                ic.sendKeyEvent(KeyEvent(
+                    SystemClock.uptimeMillis(), SystemClock.uptimeMillis(),
+                    KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0, meta,
+                ))
+                ic.sendKeyEvent(KeyEvent(
+                    SystemClock.uptimeMillis(), SystemClock.uptimeMillis(),
+                    KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER, 0, meta,
+                ))
             }
         }
     }
