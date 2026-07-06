@@ -117,7 +117,7 @@ final class GamepadInputManager {
 
     /// idle 時の LS 押下（`.confirmOrNewline` → 改行分岐）を横取りするコールバック。
     /// `true` を返すと標準の改行挿入をスキップする。
-    /// VRChat OSC モードで「LS=chatbox 確定送信」を実現するために使用する。
+    /// （VRChat OSC 撤去に伴い現在は未使用。idle LS を外部で横取りする拡張点として残す。）
     var onIdleConfirm: (() -> Bool)?
 
     // MARK: - Dependencies
@@ -240,7 +240,7 @@ final class GamepadInputManager {
     /// 同段子音を連続で打つ場合は LS を flick し直す必要がある。
     private(set) var devaLsDir: DevaLsDirection = .neutral
 
-    /// 現在の Devanagari composing buffer（ビジュアライザ / OSC 連携で参照）
+    /// 現在の Devanagari composing buffer（ビジュアライザで参照）
     var devanagariComposingBuffer: String { devanagariComposer.currentBuffer }
 
     // Devanagari 内部状態
@@ -1706,7 +1706,7 @@ final class GamepadInputManager {
                     // 部分確定: 残りはまだ composing 中
                 }
             } else if onIdleConfirm?() == true {
-                // 横取り済み（VRChat OSC モードの chatbox 送信等）
+                // onIdleConfirm が横取りした場合（撤去済み VRChat 用。現在は未使用）
             } else {
                 if currentMode == .korean {
                     // 改行の前に韓国語の合成状態を確定 + Smart Jamo 解除

@@ -1,5 +1,7 @@
 # GiME -- ゲームパッド日本語入力アプリ仕様書
 
+> **【一部アーカイブ】** VRChat OSC 連携（`OSC/`・`VrChatSettingsView` と App.swift の OSC 配線）は 2026-07 に撤去し、GIME を純 IME 化した。本仕様書中の OSC / chatbox / `VrChatOscOutput` / `VrChatOscSettings` に関する記述はアーカイブであり、現行コードには存在しない。実装は git tag `gime-vrchat-impl-archive` に保存。設計知見は `docs/gime-vrchat-osc-plan.md`（アーカイブ）参照。
+
 ## 概要
 
 GiME (Gamepad IME) は、iPhone / iPad + ゲームパッドで多言語テキスト入力を行う実験的アプリである（Universal build、iPad はエディタ・ビジュアライザとも大きめフォント、iPhone は compact 幅で縮小レイアウト）。

@@ -8,7 +8,7 @@ iPad 版は [AzooKey](https://github.com/azooKey/AzooKeyKanaKanjiConverter) の 
 - **Android 版**: `android/` / Android Studio でビルド、または [Releases](https://github.com/msonrm/GIME/releases) から署名済み APK をダウンロード
   - Android アプリ名: **GIME**（applicationId: `com.msonrm.gime`）
   - Android 10 以上
-  - システム IME として任意アプリに入力、または VRChat OSC で chatbox に直接送信可能
+  - システム IME として任意アプリに入力
 
 ## 特徴
 
