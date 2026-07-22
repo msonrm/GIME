@@ -501,11 +501,26 @@ LT ラベルが자모 モードの状態に連動:
 
 ### Web 版（TypeScript）
 
+**試打サイト（React、`web/src/`）— 全モード（日/英/韓）**:
+
 | ファイル | 役割 |
 |----------|------|
 | `web/src/engine/gamepad-kana-table.ts` | かなテーブル、拗音マップ、濁点マップ |
 | `web/src/hooks/useGamepadInput.ts` | rAF ポーリング、エッジ検出、eager output + rollback |
 | `web/src/components/GamepadVisualizer.tsx` | ビジュアライザ（日本語モードのみ） |
+
+**GamepadEngine 単体バンドル（`web/src/gamepad/`、日本語のみ）— へちま言語ラボ `/gamepad/` 向け**。
+試打サイトの日本語ロジックを framework 非依存の UMD に切り出したもの。GamepadOp を `insertKana` /
+`feed` に配線する（組み込みは [`gamepad-engine-embedding.md`](gamepad-engine-embedding.md)）。試打サイト
+にない左スティックのナビゲーション（↓=変換/次候補・未入力時カーソル下・↑=前候補・←→=文節移動・
+RT+←→=文節伸縮）と Start=確定アンドゥを追加している:
+
+| ファイル | 役割 |
+|----------|------|
+| `web/src/gamepad/machine.ts` | `stepJapanese` 状態機械（試打サイトから移植・挙動不変） |
+| `web/src/gamepad/ops.ts` | 抽象アクション → `GamepadOp`（kana/key）変換。拗音・濁点は合成末尾で解決 |
+| `web/src/gamepad/engine.ts` | `start`（rAF ポーリング + 左右スティック/LS/RS/Start）/ `createResolver`（純核） |
+| `web/src/gamepad/visualizer.ts` | DOM ビジュアライザ（`mount`。日本語のみ） |
 
 ### Android 版（Kotlin、`android/app/src/main/java/com/gime/android/`）
 
