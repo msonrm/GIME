@@ -1,6 +1,6 @@
 # GiME -- ゲームパッド日本語入力アプリ仕様書
 
-> **【一部アーカイブ】** VRChat OSC 連携（`OSC/`・`VrChatSettingsView` と App.swift の OSC 配線）は 2026-07 に撤去し、GIME を純 IME 化した。本仕様書中の OSC / chatbox / `VrChatOscOutput` / `VrChatOscSettings` に関する記述はアーカイブであり、現行コードには存在しない。実装は git tag `gime-vrchat-impl-archive` に保存。設計知見は `docs/gime-vrchat-osc-plan.md`（アーカイブ）参照。
+> **【一部アーカイブ】** VRChat OSC 連携（`OSC/`・`VrChatSettingsView` と App.swift の OSC 配線）は 2026-07 に撤去し、GIME を純 IME 化した。本仕様書中の OSC / chatbox / `VrChatOscOutput` / `VrChatOscSettings` に関する記述はアーカイブであり、現行コードには存在しない。実装と当時のドキュメント一式は git tag `gime-vrchat-impl-archive` に保存（撤去した機能の手引きを配り続けないため、`docs/` 側の OSC 関連ドキュメントはこの repo には含まれない）。
 
 ## 概要
 
@@ -20,7 +20,7 @@ GiME (Gamepad IME) は、iPhone / iPad + ゲームパッドで多言語テキス
 - KeyLogicKit の IME エンジン（InputManager, IMETextView）を利用し、日本語のかな漢字変換を実現
 - GCController でゲームパッド入力を受け取り、KeyRouter をバイパスして InputManager にかなを注入（日本語以外は IME をバイパスし `onDirectInsert` で直接挿入）
 - ソフトウェアキーボードは非表示。フォールバックとしてハードウェアキーボード入力（ローマ字 US 配列）も受け付ける
-- 入力内容を VRChat へ OSC 経由で送信するオプトイン機能を搭載（デフォルト OFF、詳細は `docs/gime-vrchat-osc.md`）
+- 入力内容を VRChat へ OSC 経由で送信するオプトイン機能を搭載（デフォルト OFF。**撤去済み**、冒頭の注記を参照）
 
 ## アーキテクチャ
 
@@ -443,7 +443,7 @@ L3（LS click）で非 varga サブレイヤーに enter し、य/र/ल/व/�
 
 ## VRChat OSC 連携（opt-in）
 
-入力内容を VRChat の chatbox に OSC 経由で送信する機能。デフォルト OFF で、ユーザーが `VrChatSettingsView` で明示的に有効化するまでソケットは open しない。詳細: `docs/gime-vrchat-osc.md`。
+入力内容を VRChat の chatbox に OSC 経由で送信する機能。デフォルト OFF で、ユーザーが `VrChatSettingsView` で明示的に有効化するまでソケットは open しない。**撤去済み**（冒頭の注記を参照。当時のセットアップ手引きは git tag `gime-vrchat-impl-archive` に保存）。
 
 ### 出力
 
