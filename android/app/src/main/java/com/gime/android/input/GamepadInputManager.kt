@@ -63,16 +63,6 @@ class GamepadInputManager {
     var devaLsDir: DevaLsDirection by mutableStateOf(DevaLsDirection.NEUTRAL)
         private set
 
-    // 中国語モード状態
-    var pinyinBuffer: String by mutableStateOf("")
-        private set
-    var zhuyinDisplayBuffer: String by mutableStateOf("")
-        private set
-    var pinyinCandidates: List<PinyinCandidate> by mutableStateOf(emptyList())
-        private set
-    var pinyinSelectedIndex: Int by mutableStateOf(0)
-        private set
-
     // 日本語変換状態（Phase A2.4: 文節編集対応）
     /// 変換前のひらがなバッファ。直近の日本語かな入力の累積。
     var hiraganaBuffer: String by mutableStateOf("")
@@ -160,11 +150,6 @@ class GamepadInputManager {
             koreanComposer.commit()
             patchimRollbackActive = false
             allReleasedSinceSyllable = true
-            pinyinBuffer = ""
-            zhuyinDisplayBuffer = ""
-            pinyinCandidates = emptyList()
-            pinyinSelectedIndex = 0
-            pinyinWindowStart = 0
             englishSmartCaps = false
             englishShiftNext = false
             englishCapsLock = false
@@ -200,7 +185,6 @@ class GamepadInputManager {
 
     // MARK: - Dependencies
 
-    var pinyinEngine: PinyinEngine? = null
     /// 日本語かな漢字変換エンジン。null の場合は変換無効（生かなのみ）。
     var japaneseConverter: JapaneseConverter? = null
     /// 非同期変換用のスコープ。MainActivity から注入する。
@@ -318,10 +302,6 @@ class GamepadInputManager {
     // - LB release edge で立ったままなら: そこで ㅁ (row 5) を emit
     private var jamoLbOnlyPending: Boolean = false
 
-    // 中国語スライディングウィンドウ
-    private var pinyinWindowStart: Int = 0
-    private val pinyinWindowSize: Int = 9
-
     // Devanagari 内部状態
     /// D-pad 前回方向（devanagari の stop 変化検知用）
     private var prevDevaDpadDir: DevaDpadDir = DevaDpadDir.NONE
@@ -332,16 +312,6 @@ class GamepadInputManager {
     /// RT 押下中にカーソル移動を発火したか（release 時に halant を抑止するフラグ）
     private var devaRtUsedForCursor: Boolean = false
     /// LS 押し込み (lsClick) の前回状態は既存の prevLS を使用
-
-    val visiblePinyinCandidates: List<PinyinCandidate>
-        get() {
-            if (pinyinCandidates.isEmpty()) return emptyList()
-            val end = minOf(pinyinWindowStart + pinyinWindowSize, pinyinCandidates.size)
-            return pinyinCandidates.subList(pinyinWindowStart, end)
-        }
-
-    val pinyinSelectedIndexInWindow: Int
-        get() = pinyinSelectedIndex - pinyinWindowStart
 
     // MARK: - 現在のスナップショット（イベント間で状態を保持）
     private var currentSnapshot = GamepadSnapshot()
@@ -540,11 +510,6 @@ class GamepadInputManager {
             koreanComposer.commit()
             patchimRollbackActive = false
             allReleasedSinceSyllable = true
-            pinyinBuffer = ""
-            zhuyinDisplayBuffer = ""
-            pinyinCandidates = emptyList()
-            pinyinSelectedIndex = 0
-            pinyinWindowStart = 0
             // 英語モードの状態もリセット
             englishSmartCaps = false
             englishShiftNext = false
@@ -573,24 +538,9 @@ class GamepadInputManager {
             }
         }
 
-        // --- 右スティック ← : 削除（中国語バッファ中はバッファ削除、韓国語は合成状態を確定）---
+        // --- 右スティック ← : 削除（韓国語は合成状態を確定）---
         if (rStickLeft && !prevRStickLeft) {
-            if ((currentMode == GamepadInputMode.CHINESE_SIMPLIFIED ||
-                        currentMode == GamepadInputMode.CHINESE_TRADITIONAL) &&
-                pinyinBuffer.isNotEmpty()
-            ) {
-                pinyinBuffer = pinyinBuffer.dropLast(1)
-                if (currentMode == GamepadInputMode.CHINESE_TRADITIONAL) {
-                    zhuyinDisplayBuffer = zhuyinDisplayBuffer.dropLast(1)
-                }
-                if (pinyinBuffer.isEmpty()) {
-                    pinyinCandidates = emptyList()
-                    pinyinSelectedIndex = 0
-                    pinyinWindowStart = 0
-                } else {
-                    lookupPinyinCandidates()
-                }
-            } else {
+            run {
                 // 日本語変換中は変換をキャンセル、バッファ末尾を削る
                 if (currentMode == GamepadInputMode.JAPANESE) {
                     if (isConverting) {
@@ -624,19 +574,11 @@ class GamepadInputManager {
             }
         }
 
-        // --- 右スティック ↓ : 言語別の句読点サイクル（中国語候補中は次候補）---
+        // --- 右スティック ↓ : 言語別の句読点サイクル ---
         // アナログスティックのチャタリング対策として rsDownDebounceMs 以内の再エッジは無視する。
         if (rStickDown && !prevRStickDown && now >= lastRsDownEdgeTime + rsDownDebounceMs) {
             lastRsDownEdgeTime = now
-            val chineseCandidateMode = (currentMode == GamepadInputMode.CHINESE_SIMPLIFIED ||
-                    currentMode == GamepadInputMode.CHINESE_TRADITIONAL) &&
-                    pinyinCandidates.isNotEmpty()
-            if (chineseCandidateMode) {
-                if (pinyinSelectedIndex < pinyinCandidates.size - 1) {
-                    pinyinSelectedIndex++
-                    updatePinyinWindow()
-                }
-            } else {
+            run {
                 // 言語別の前処理（iOS と同一）
                 when (currentMode) {
                     GamepadInputMode.KOREAN -> {
@@ -646,16 +588,6 @@ class GamepadInputManager {
                     GamepadInputMode.ENGLISH -> {
                         // smart caps を解除（句読点後の自動大文字化を無効化）
                         englishSmartCaps = false
-                    }
-                    GamepadInputMode.CHINESE_SIMPLIFIED,
-                    GamepadInputMode.CHINESE_TRADITIONAL -> {
-                        // 候補が無い状態でバッファだけ残っている場合はクリア
-                        if (pinyinBuffer.isNotEmpty()) {
-                            pinyinBuffer = ""
-                            zhuyinDisplayBuffer = ""
-                            pinyinSelectedIndex = 0
-                            pinyinWindowStart = 0
-                        }
                     }
                     GamepadInputMode.DEVANAGARI -> {
                         // cluster を確定して next input を新 cluster として扱う
@@ -717,17 +649,6 @@ class GamepadInputManager {
                             }
                         }
                     }
-                    GamepadInputMode.CHINESE_SIMPLIFIED,
-                    GamepadInputMode.CHINESE_TRADITIONAL -> when (rStickDownTapCount) {
-                        // ， → 。 → スペース
-                        1 -> onDirectInsert?.invoke("，", 0)
-                        2 -> onDirectInsert?.invoke("。", 1)
-                        else -> {
-                            onDirectInsert?.invoke(" ", 1)
-                            rStickDownTapCount = 0
-                            rStickDownLastTime = 0
-                        }
-                    }
                     GamepadInputMode.DEVANAGARI -> when (rStickDownTapCount) {
                         // Devanagari: ␣ → । (danda) → ॥ (double danda)
                         1 -> onDirectInsert?.invoke(" ", 0)
@@ -742,10 +663,8 @@ class GamepadInputManager {
             }
         }
 
-        // --- 左スティック: 日本語変換/中国語候補選択/カーソル移動 ---
+        // --- 左スティック: 日本語変換/カーソル移動 ---
         val inJapanese = currentMode == GamepadInputMode.JAPANESE
-        val inChinese = currentMode == GamepadInputMode.CHINESE_SIMPLIFIED ||
-                currentMode == GamepadInputMode.CHINESE_TRADITIONAL
         when {
             inJapanese && isConverting -> {
                 // 変換中: 上下で候補サイクル、左右でフォーカス文節切替
@@ -762,12 +681,6 @@ class GamepadInputManager {
                     if (lStickLeft && !prevLStickLeft) onCursorMove?.invoke(-1)
                     if (lStickRight && !prevLStickRight) onCursorMove?.invoke(1)
                 }
-            }
-            inChinese && pinyinCandidates.isNotEmpty() -> {
-                // 中国語候補選択: 上下で候補サイクル（ページ追従）
-                if (lStickDown && !prevLStickDown) cyclePinyinCandidate(+1)
-                if (lStickUp && !prevLStickUp) cyclePinyinCandidate(-1)
-                // 左右は未使用（将来: ページ単位ジャンプに使える）
             }
             else -> {
                 // カーソル移動の前に韓国語の合成状態を確定 + Smart Jamo 解除
@@ -798,8 +711,6 @@ class GamepadInputManager {
             GamepadInputMode.JAPANESE -> handleJapaneseInput(gp, row, vowel, ltNow, rtNow, rStickUp, rStickRight, now)
             GamepadInputMode.ENGLISH -> handleEnglishInput(gp, row, vowel, ltNow, rtNow, rStickUp, rStickRight, now)
             GamepadInputMode.KOREAN -> handleKoreanInput(gp, row, vowel, ltNow, rtNow, rStickUp, rStickRight, now)
-            GamepadInputMode.CHINESE_SIMPLIFIED -> handleChineseInput(gp, row, vowel, rStickUp, rStickRight, now)
-            GamepadInputMode.CHINESE_TRADITIONAL -> handleZhuyinInput(gp, row, vowel, rStickUp, rStickRight, now)
             GamepadInputMode.DEVANAGARI -> handleDevanagariInput(
                 gp, ltNow, rtNow,
                 rStickUp, rStickDown, rStickLeft, rStickRight,
@@ -808,12 +719,10 @@ class GamepadInputManager {
             )
         }
 
-        // --- LS クリック: 確定/改行（日本語変換中は確定、中国語候補あれば候補確定）---
+        // --- LS クリック: 確定/改行（日本語変換中は確定）---
         // DualSense 等のチャタリング対策として lsDebounceMs 以内の再落ちエッジは無視する。
         if (prevLS && !gp.lsClick && now >= lastLsEdgeTime + lsDebounceMs) {
             lastLsEdgeTime = now
-            val isChinese = currentMode == GamepadInputMode.CHINESE_SIMPLIFIED ||
-                    currentMode == GamepadInputMode.CHINESE_TRADITIONAL
             // LT 押下中の LS click = Ctrl+Enter（Slack/Discord 等の「送信」用、お試し実装）。
             // composing 中はまず確定してから Ctrl+Enter を送る。LT release 側の後処理は
             // ltConsumedByCtrlEnter で抑止する。Devanagari の RT+LS click（改行）と
@@ -824,17 +733,6 @@ class GamepadInputManager {
                 when {
                     currentMode == GamepadInputMode.JAPANESE && isConverting -> commitConversion()
                     currentMode == GamepadInputMode.JAPANESE && hiraganaBuffer.isNotEmpty() -> resetComposingState()
-                    isChinese && pinyinCandidates.isNotEmpty() -> {
-                        val candidate = pinyinCandidates.getOrNull(pinyinSelectedIndex)
-                        if (candidate != null) {
-                            onDirectInsert?.invoke(candidate.word, 0)
-                            pinyinBuffer = ""
-                            zhuyinDisplayBuffer = ""
-                            pinyinCandidates = emptyList()
-                            pinyinSelectedIndex = 0
-                            pinyinWindowStart = 0
-                        }
-                    }
                     currentMode == GamepadInputMode.KOREAN -> {
                         commitKoreanComposer()
                         releaseKoreanSmartJamo()
@@ -850,17 +748,6 @@ class GamepadInputManager {
                 currentMode == GamepadInputMode.JAPANESE && hiraganaBuffer.isNotEmpty() -> {
                     // 変換未発動で LS が押された = ひらがなをそのまま確定
                     resetComposingState()
-                }
-                isChinese && pinyinCandidates.isNotEmpty() -> {
-                    val candidate = pinyinCandidates.getOrNull(pinyinSelectedIndex)
-                    if (candidate != null) {
-                        onDirectInsert?.invoke(candidate.word, 0)
-                        pinyinBuffer = ""
-                        zhuyinDisplayBuffer = ""
-                        pinyinCandidates = emptyList()
-                        pinyinSelectedIndex = 0
-                        pinyinWindowStart = 0
-                    }
                 }
                 currentMode == GamepadInputMode.DEVANAGARI -> {
                     if (gp.rtValue > triggerPressThreshold) {
@@ -896,10 +783,8 @@ class GamepadInputManager {
             }
         }
 
-        // --- RS クリック: composing 全削除（日本語）/ 中国語バッファクリア ---
+        // --- RS クリック: composing 全削除（日本語）---
         if (prevRS && !gp.rsClick) {
-            val isChinese = currentMode == GamepadInputMode.CHINESE_SIMPLIFIED ||
-                    currentMode == GamepadInputMode.CHINESE_TRADITIONAL
             when {
                 currentMode == GamepadInputMode.JAPANESE && isConverting -> {
                     // 変換中: 表示中の surface を全削除 + composing リセット
@@ -910,13 +795,6 @@ class GamepadInputManager {
                     // 未変換: テキストフィールド上の原かなも全削除
                     onDirectInsert?.invoke("", hiraganaBuffer.length)
                     resetComposingState()
-                }
-                isChinese && pinyinBuffer.isNotEmpty() -> {
-                    pinyinBuffer = ""
-                    zhuyinDisplayBuffer = ""
-                    pinyinCandidates = emptyList()
-                    pinyinSelectedIndex = 0
-                    pinyinWindowStart = 0
                 }
             }
         }
@@ -1243,8 +1121,10 @@ class GamepadInputManager {
         if (readings.isEmpty()) return
 
         // 書き込み対象のスナップショットを作ってから非同期で流す。
-        // 1. 各文節単位の (reading, surface)
-        // 2. 文節が 2 つ以上なら、連結した (fullReading, fullSurface) も追加記録
+        // ★確定した文節列を**まるごと 1 回**で渡す。Mozc は文全体を再現して各文節を
+        //   表示値の一致で確定する（候補選択 + 文節境界を同時に学習する）ので、
+        //   1 ペアずつ渡すと境界が学習されない。旧エンジン向けの 1 ペアずつの書き込みと
+        //   全体連結の追加記録は、ファサード側（JapaneseConverter）が引き受ける。
         val pairs = buildList {
             for (i in readings.indices) {
                 val reading = readings.getOrNull(i) ?: continue
@@ -1252,26 +1132,20 @@ class GamepadInputManager {
                 val surface = candidates.getOrNull(i)?.getOrNull(idx)?.surface ?: continue
                 add(reading to surface)
             }
-            if (readings.size >= 2) {
-                val fullReading = readings.joinToString("")
-                val fullSurface = candidates.mapIndexed { i, cands ->
-                    val idx = selections.getOrNull(i) ?: 0
-                    cands.getOrNull(idx)?.surface ?: ""
-                }.joinToString("")
-                if (fullReading.isNotEmpty() && fullSurface.isNotEmpty()) {
-                    add(fullReading to fullSurface)
-                }
-            }
         }
         if (pairs.isEmpty()) return
+        val learnReadings = pairs.map { it.first }
+        val learnSurfaces = pairs.map { it.second }
 
         scope.launch(Dispatchers.IO) {
-            for ((reading, surface) in pairs) {
-                try {
-                    converter.recordLearning(reading, surface)
-                } catch (t: Throwable) {
-                    android.util.Log.w("GamepadInputManager", "learning write failed: $reading -> $surface", t)
-                }
+            try {
+                converter.recordLearning(learnReadings, learnSurfaces)
+            } catch (t: Throwable) {
+                android.util.Log.w(
+                    "GamepadInputManager",
+                    "learning write failed: ${learnReadings.joinToString("")}",
+                    t,
+                )
             }
         }
     }
@@ -2006,139 +1880,6 @@ class GamepadInputManager {
         prevDevaDpadDir = dpadDir
         prevDevaFace = face
         prevDevaRawLsDir = rawLsDir
-    }
-
-    // MARK: - 中国語（簡体字）入力
-
-    private fun handleChineseInput(
-        gp: GamepadSnapshot, row: Int, vowel: VowelButton?,
-        rStickUp: Boolean, rStickRight: Boolean, now: Long,
-    ) {
-        val vowelNow = vowel != null
-
-        if (vowelNow && prevVowel == null) {
-            val v = vowel!!.index
-            val char = ENGLISH_TABLE[row][v]
-            if (char.isNotEmpty() && !char.first().isDigit()) {
-                pinyinBuffer += char
-                lookupPinyinCandidates()
-            }
-        }
-
-        // 右スティック↑: 候補選択（前）
-        if (rStickUp && !prevRStickUp && pinyinCandidates.isNotEmpty()) {
-            if (pinyinSelectedIndex > 0) {
-                pinyinSelectedIndex--
-                updatePinyinWindow()
-            }
-        }
-
-        // 右スティック→: 先頭候補を確定 + 顿号「、」
-        if (rStickRight && !prevRStickRight) {
-            confirmTopPinyinCandidate()
-            onDirectInsert?.invoke("、", 0)
-        }
-
-        // RB で確定
-        if (gp.rb && !prevRB && pinyinCandidates.isNotEmpty()) {
-            val candidate = pinyinCandidates.getOrNull(pinyinSelectedIndex)
-            if (candidate != null) {
-                onDirectInsert?.invoke(candidate.word, 0)
-                pinyinBuffer = ""
-                pinyinCandidates = emptyList()
-                pinyinSelectedIndex = 0
-                pinyinWindowStart = 0
-            }
-        }
-    }
-
-    // MARK: - 中国語（繁體字）注音入力
-
-    private fun handleZhuyinInput(
-        gp: GamepadSnapshot, row: Int, vowel: VowelButton?,
-        rStickUp: Boolean, rStickRight: Boolean, now: Long,
-    ) {
-        val vowelNow = vowel != null
-
-        if (vowelNow && prevVowel == null) {
-            val v = vowel!!.index
-            val zhuyinChar = ZHUYIN_TABLE[row][v]
-            if (zhuyinChar.isNotEmpty() && !zhuyinChar.first().isDigit()) {
-                zhuyinDisplayBuffer += zhuyinChar
-                val pinyinInitial = ZHUYIN_TO_PINYIN_INITIAL[zhuyinChar.first()]
-                if (pinyinInitial != null) {
-                    pinyinBuffer += pinyinInitial
-                }
-                lookupPinyinCandidates()
-            }
-        }
-
-        // 右スティック↑: 候補選択（前）
-        if (rStickUp && !prevRStickUp && pinyinCandidates.isNotEmpty()) {
-            if (pinyinSelectedIndex > 0) {
-                pinyinSelectedIndex--
-                updatePinyinWindow()
-            }
-        }
-
-        // 右スティック→: 先頭候補を確定 + 顿号「、」
-        if (rStickRight && !prevRStickRight) {
-            confirmTopPinyinCandidate()
-            onDirectInsert?.invoke("、", 0)
-        }
-
-        // RB で確定
-        if (gp.rb && !prevRB && pinyinCandidates.isNotEmpty()) {
-            val candidate = pinyinCandidates.getOrNull(pinyinSelectedIndex)
-            if (candidate != null) {
-                onDirectInsert?.invoke(candidate.word, 0)
-                pinyinBuffer = ""
-                zhuyinDisplayBuffer = ""
-                pinyinCandidates = emptyList()
-                pinyinSelectedIndex = 0
-                pinyinWindowStart = 0
-            }
-        }
-    }
-
-    // MARK: - Pinyin 候補検索
-
-    /// 先頭候補を確定してバッファをクリア。候補が無ければバッファだけクリア
-    private fun confirmTopPinyinCandidate() {
-        val top = pinyinCandidates.firstOrNull()
-        if (top != null) {
-            onDirectInsert?.invoke(top.word, 0)
-        }
-        pinyinBuffer = ""
-        zhuyinDisplayBuffer = ""
-        pinyinCandidates = emptyList()
-        pinyinSelectedIndex = 0
-        pinyinWindowStart = 0
-    }
-
-    private fun lookupPinyinCandidates() {
-        val engine = pinyinEngine ?: return
-        engine.variant = when (currentMode) {
-            GamepadInputMode.CHINESE_SIMPLIFIED -> ChineseVariant.SIMPLIFIED
-            GamepadInputMode.CHINESE_TRADITIONAL -> ChineseVariant.TRADITIONAL
-            else -> engine.variant
-        }
-        pinyinCandidates = engine.lookup(pinyinBuffer)
-        pinyinSelectedIndex = 0
-        pinyinWindowStart = 0
-    }
-
-    private fun updatePinyinWindow() {
-        // 日本語同様ページ単位でウィンドウをジャンプ
-        pinyinWindowStart = (pinyinSelectedIndex / pinyinWindowSize) * pinyinWindowSize
-    }
-
-    /// 中国語候補を左スティック ↑↓ でサイクル
-    private fun cyclePinyinCandidate(delta: Int) {
-        if (pinyinCandidates.isEmpty()) return
-        val size = pinyinCandidates.size
-        pinyinSelectedIndex = ((pinyinSelectedIndex + delta) % size + size) % size
-        updatePinyinWindow()
     }
 
 }

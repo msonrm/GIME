@@ -21,12 +21,9 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.gime.android.engine.JapaneseConverter
-import com.gime.android.engine.PinyinEngine
+import com.gime.android.engine.MozcUserDictionary
 import com.gime.android.input.GamepadInputManager
 import com.gime.android.input.GamepadSnapshot
-import com.gime.android.learn.DatabaseProvider
-import com.kazumaproject.markdownhelperkeyboard.repository.LearnRepository
-import com.kazumaproject.markdownhelperkeyboard.repository.UserDictionaryRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -95,19 +92,10 @@ class GimeInputMethodService :
         }
         Log.d(TAG, "onCreate")
 
-        val db = DatabaseProvider.get(this)
-        val userDict = UserDictionaryRepository(db.userWordDao())
-        val learnRepo = LearnRepository(db.learnDao())
-
-        val pinyinEngine = PinyinEngine()
-        pinyinEngine.load(this)
-        inputManager.pinyinEngine = pinyinEngine
-
-        val japaneseConverter = JapaneseConverter().apply {
-            this.userDict = userDict
-            this.learnRepo = learnRepo
+        val japaneseConverter = JapaneseConverter()
+        japaneseConverter.initializeAsync(this, serviceScope) {
+            MozcUserDictionary.migrateFromLegacyRoom(applicationContext)
         }
-        japaneseConverter.initializeAsync(this, serviceScope)
         inputManager.japaneseConverter = japaneseConverter
         inputManager.coroutineScope = serviceScope
 

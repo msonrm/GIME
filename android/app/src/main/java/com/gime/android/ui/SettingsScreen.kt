@@ -170,23 +170,9 @@ fun SettingsScreen(
             SectionHeader("オープンソースライセンス")
             SectionCard {
                 LicenseEntry(
-                    title = "KazumaProject / JapaneseKeyboard",
-                    subtitle = "MIT License Copyright (c) 2024 Kazuma Naka",
-                    body = "日本語かな漢字変換エンジン本体（LOUDS trie + N-gram 言語モデル）および辞書データを vendor して利用しています。著作権表示・ライセンス全文は上流リポジトリの LICENSE を参照してください。",
-                    licenseText = MIT_LICENSE_KAZUMA,
-                )
-                HorizontalDivider()
-                LicenseEntry(
-                    title = "CC-CEDICT",
-                    subtitle = "Creative Commons Attribution-ShareAlike 4.0 International",
-                    body = "中国語簡体字辞書データの語彙・ピンイン情報に使用しています。",
-                    licenseText = null,
-                )
-                HorizontalDivider()
-                LicenseEntry(
-                    title = "libchewing",
-                    subtitle = "LGPL v2.1 — libchewing contributors",
-                    body = "中国語繁體字辞書データの語彙・注音情報に使用しています。",
+                    title = "Mozc",
+                    subtitle = "BSD-3-Clause / NAIST License / Public Domain — Copyright 2010-2018 Google Inc.",
+                    body = "日本語かな漢字変換エンジン本体と辞書データ（google/mozc）。エンジンは fcitx5-mozc のビルドを自前でコンパイルし、辞書は mozc.data をそのまま同梱しています。辞書エントリの大部分は NAIST License、一部は Public Domain です。",
                     licenseText = null,
                 )
                 HorizontalDivider()
@@ -278,26 +264,3 @@ private fun LicenseEntry(
         }
     }
 }
-
-private val MIT_LICENSE_KAZUMA = """
-    MIT License
-    Copyright (c) 2024 Kazuma Naka
-
-    Permission is hereby granted, free of charge, to any person obtaining a copy
-    of this software and associated documentation files (the "Software"), to deal
-    in the Software without restriction, including without limitation the rights
-    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-    copies of the Software, and to permit persons to whom the Software is
-    furnished to do so, subject to the following conditions:
-
-    The above copyright notice and this permission notice shall be included in all
-    copies or substantial portions of the Software.
-
-    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-    SOFTWARE.
-""".trimIndent()

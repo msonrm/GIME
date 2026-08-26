@@ -14,7 +14,6 @@ struct GIMEApp: App {
 struct ContentView: View {
     @State private var inputManager = InputManager()
     @State private var gamepadInput: GamepadInputManager?
-    @State private var pinyinEngine = PinyinEngine()
 
     /// iPhone（compact 幅）では全体を縮小、iPad（regular 幅）では従来の大きめスタイル。
     /// Stage Manager で iPad を縦長に細くした場合も compact 扱いになる。
@@ -86,24 +85,6 @@ struct ContentView: View {
                             selectedAdditionalCandidateIndex: inputManager.selectedAdditionalCandidateIndex,
                             candidates: inputManager.visibleCandidateTexts,
                             selectedIndex: inputManager.selectedIndexInWindow,
-                            font: .system(size: candidateFontSize),
-                            fontSize: candidateFontSize,
-                            anchor: caretRect,
-                            bounds: geo.size
-                        )
-                    }
-                    // 中国語ピンイン候補ポップアップ
-                    else if let gp = gamepadInput,
-                            gp.isChinese,
-                            !gp.pinyinCandidates.isEmpty {
-                        CandidatePopup(
-                            additionalCandidates: [],
-                            isAdditionalCandidateSelected: false,
-                            selectedAdditionalCandidateIndex: 0,
-                            candidates: gp.visiblePinyinCandidates.map {
-                                "\($0.word)  \($0.reading)"
-                            },
-                            selectedIndex: gp.pinyinSelectedIndexInWindow,
                             font: .system(size: candidateFontSize),
                             fontSize: candidateFontSize,
                             anchor: caretRect,
@@ -212,9 +193,6 @@ struct ContentView: View {
                 }
                 selectionLength = 0
             }
-            pinyinEngine.load()
-            gp.pinyinEngine = pinyinEngine
-
             gamepadInput = gp
         }
         .onChange(of: text) { _, newValue in

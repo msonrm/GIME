@@ -15,32 +15,31 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.kazumaproject.markdownhelperkeyboard.repository.LearnRepository
-import com.kazumaproject.markdownhelperkeyboard.repository.UserDictionaryRepository
-import com.kazumaproject.markdownhelperkeyboard.repository.UserWord
+import com.gime.android.engine.HechimaNative
+import com.gime.android.engine.JapaneseConverter
+import com.gime.android.engine.MozcUserDictionary
 import kotlinx.coroutines.launch
 
 /// ユーザー辞書エディタ + 学習履歴リセット画面。
 ///
+/// 実体は Mozc 側（`libhechima.so` の user_dictionary.db / segment.db）。
 /// シンプルに一覧表示 + 追加フォーム + 個別削除 + 全削除 + 学習リセット。
-/// CSV エクスポート等は将来必要になったら追加。
 @Composable
 fun DictionaryScreen(
-    userDict: UserDictionaryRepository,
-    learnRepo: LearnRepository,
+    converter: JapaneseConverter,
     onClose: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    var words by remember { mutableStateOf<List<UserWord>>(emptyList()) }
+    var words by remember { mutableStateOf<List<HechimaNative.DictEntry>>(emptyList()) }
     var reading by remember { mutableStateOf("") }
     var surface by remember { mutableStateOf("") }
-    var posIndex by remember { mutableStateOf(0) }
+    var pos by remember { mutableStateOf(MozcUserDictionary.POS_CHOICES.first().second) }
     var showPosMenu by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
 
     // 初回ロード
     LaunchedEffect(Unit) {
-        words = userDict.all()
+        words = HechimaNative.dictList()
     }
 
     Column(
@@ -81,17 +80,17 @@ fun DictionaryScreen(
                 Text("品詞: ", fontSize = 13.sp)
                 Box {
                     TextButton(onClick = { showPosMenu = true }) {
-                        Text(POS_LABELS.getOrElse(posIndex) { "名詞" })
+                        Text(MozcUserDictionary.posLabel(pos))
                     }
                     DropdownMenu(
                         expanded = showPosMenu,
                         onDismissRequest = { showPosMenu = false },
                     ) {
-                        POS_LABELS.forEachIndexed { i, label ->
+                        MozcUserDictionary.POS_CHOICES.forEach { (label, value) ->
                             DropdownMenuItem(
                                 text = { Text(label) },
                                 onClick = {
-                                    posIndex = i
+                                    pos = value
                                     showPosMenu = false
                                 },
                             )
@@ -105,20 +104,18 @@ fun DictionaryScreen(
                 onClick = {
                     val r = reading.trim()
                     val s = surface.trim()
-                    val pi = posIndex
+                    val p = pos
                     scope.launch {
-                        userDict.upsert(
-                            reading = r,
-                            word = s,
-                            posIndex = pi,
-                            // posScore は低いほど優先される。ユーザー登録語はシステム語と
-                            // 同等〜やや優遇する 2000 付近を既定にする。
-                            posScore = 2000,
-                        )
-                        words = userDict.all()
-                        reading = ""
-                        surface = ""
-                        status = "追加しました: $r → $s"
+                        // よみは Mozc 純正の規則で検証される（かな + 英数字は可、漢字等は拒否）
+                        val ok = HechimaNative.dictAdd(r, s, p)
+                        words = HechimaNative.dictList()
+                        status = if (ok) {
+                            reading = ""
+                            surface = ""
+                            "追加しました: $r → $s"
+                        } else {
+                            "追加できません（よみは、かな か英数字で）"
+                        }
                     }
                 },
             ) {
@@ -138,8 +135,9 @@ fun DictionaryScreen(
             TextButton(
                 onClick = {
                     scope.launch {
-                        userDict.deleteAll()
-                        words = emptyList()
+                        // ★index は一覧の位置なので、消すたびに前へ詰まる。後ろから消す
+                        for (i in words.indices.reversed()) HechimaNative.dictRemove(i)
+                        words = HechimaNative.dictList()
                         status = "ユーザー辞書を全削除しました"
                     }
                 },
@@ -155,7 +153,7 @@ fun DictionaryScreen(
                 .weight(1f)
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(6.dp)),
         ) {
-            items(words, key = { it.id }) { w ->
+            items(words, key = { it.index }) { w ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -166,15 +164,15 @@ fun DictionaryScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text("${w.reading} → ${w.word}", fontSize = 15.sp)
                         Text(
-                            POS_LABELS.getOrElse(w.posIndex) { "名詞" },
+                            MozcUserDictionary.posLabel(w.pos),
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     TextButton(onClick = {
                         scope.launch {
-                            userDict.delete(w)
-                            words = userDict.all()
+                            HechimaNative.dictRemove(w.index)
+                            words = HechimaNative.dictList()
                             status = "削除: ${w.reading}"
                         }
                     }) { Text("削除", color = MaterialTheme.colorScheme.error) }
@@ -204,8 +202,13 @@ fun DictionaryScreen(
             }
             TextButton(onClick = {
                 scope.launch {
-                    learnRepo.deleteAll()
-                    status = "学習履歴を削除しました"
+                    // ★ファイルを消すだけでは効かない（エンジンが在メモリ状態を持っていて
+                    //   次の Sync で書き戻す）。Mozc の ClearUserHistory を通す
+                    status = if (converter.clearLearning()) {
+                        "学習履歴を削除しました"
+                    } else {
+                        "学習履歴を削除できませんでした"
+                    }
                 }
             }) {
                 Text("リセット", color = MaterialTheme.colorScheme.error)
@@ -235,10 +238,3 @@ private fun SimpleField(label: String, value: String, onChange: (String) -> Unit
         )
     }
 }
-
-/// PosMapper (com.kazumaproject.markdownhelperkeyboard.user_dictionary) の
-/// index 定義と 1:1 で対応。表示順も揃える。
-private val POS_LABELS = listOf(
-    "名詞", "動詞", "形容詞", "副詞", "助動詞", "助詞",
-    "感動詞", "接続詞", "接頭詞", "記号", "連体詞", "その他",
-)

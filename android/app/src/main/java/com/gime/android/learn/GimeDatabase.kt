@@ -4,16 +4,15 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import com.kazumaproject.markdownhelperkeyboard.repository.LearnDao
-import com.kazumaproject.markdownhelperkeyboard.repository.LearnEntity
-import com.kazumaproject.markdownhelperkeyboard.repository.UserWord
-import com.kazumaproject.markdownhelperkeyboard.repository.UserWordDao
 
-/// GIME Android のローカル DB。
-/// - `learn`: 変換確定時の読み→surface 学習
-/// - `user_word`: ユーザー登録辞書
+/// GIME Android のローカル DB —— **旧エンジン時代の遺物で、移行のためだけに残っている**。
 ///
-/// version=1 のみ。将来マイグレーションが必要になったら `Migration` を追加する。
+/// 変換・学習・ユーザー辞書はすべて Mozc 側（`libhechima.so` の profile ディレクトリ）に
+/// 移った。ここは起動時に一度だけ `user_word` を Mozc へ流し込むために読むだけで、
+/// 書き込むコードはもう無い（`MozcUserDictionary.migrateFromLegacyRoom`）。
+///
+/// ★スキーマは version=1 のまま触らない。`fallbackToDestructiveMigration()` なので、
+/// テーブル定義を変えると**移行する前にユーザーの登録語を消してしまう**。
 @Database(
     entities = [LearnEntity::class, UserWord::class],
     version = 1,

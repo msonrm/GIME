@@ -13,8 +13,6 @@ enum GamepadInputMode: CaseIterable {
     case japanese
     case english
     case korean
-    case chineseSimplified
-    case chineseTraditional
     case devanagari
 
     var label: String {
@@ -22,8 +20,6 @@ enum GamepadInputMode: CaseIterable {
         case .japanese: return "日本語"
         case .english: return "EN"
         case .korean: return "한국어"
-        case .chineseSimplified: return "简体"
-        case .chineseTraditional: return "繁體"
         case .devanagari: return "देव"
         }
     }
@@ -249,64 +245,6 @@ let englishRowNames = ["(?)", "abc", "def", "ghi", "jkl", "mno", "pqrs", "tuv", 
 /// 英語 D-pad ラベル
 let englishDpadLabelsBase = DpadLabels(center: "(?)", left: "abc", up: "def", right: "ghi", down: "jkl")
 let englishDpadLabelsLB = DpadLabels(center: "mno", left: "pqrs", up: "tuv", right: "wxyz", down: "@#-")
-
-// MARK: - 中国語（简体）テーブル
-
-/// 中国語簡体は英語テーブルを再利用（abbreviated pinyin = アルファベット入力）
-let chineseDpadLabelsBase = englishDpadLabelsBase
-let chineseDpadLabelsLB = englishDpadLabelsLB
-let chineseRowNames = englishRowNames
-
-// MARK: - 中国語（繁體）注音テーブル
-
-/// 注音符号テーブル（10行 x 5列、英語テーブルと同じ構造）
-/// 列順: [RB(数字), X(左), Y(上), B(右), A(下)]
-/// D-pad + LB で行選択、フェイスボタンで注音選択、RB で数字入力
-/// ㄦ は abbreviated zhuyin で ㄜ と同じ "e" にマップされるため省略
-let zhuyinTable: [[String]] = [
-    // Row 0: ニュートラル
-    ["1", "ㄅ", "ㄆ", "ㄇ", "ㄈ"],      // 唇音
-    // Row 1: D-pad ←
-    ["2", "ㄉ", "ㄊ", "ㄋ", "ㄌ"],      // 舌尖音
-    // Row 2: D-pad ↑
-    ["3", "ㄍ", "ㄎ", "ㄏ", ""],         // 舌根音
-    // Row 3: D-pad →
-    ["4", "ㄐ", "ㄑ", "ㄒ", ""],         // 舌面音
-    // Row 4: D-pad ↓
-    ["5", "ㄓ", "ㄔ", "ㄕ", "ㄖ"],      // そり舌音
-    // Row 5: LB
-    ["6", "ㄗ", "ㄘ", "ㄙ", ""],         // 舌歯音
-    // Row 6: LB + ←
-    ["7", "ㄚ", "ㄛ", "ㄜ", "ㄝ"],      // 単母音
-    // Row 7: LB + ↑
-    ["8", "ㄞ", "ㄟ", "ㄠ", "ㄡ"],      // 複母音
-    // Row 8: LB + →
-    ["9", "ㄢ", "ㄣ", "ㄤ", "ㄥ"],      // 鼻母音
-    // Row 9: LB + ↓
-    ["0", "ㄧ", "ㄨ", "ㄩ", ""],         // 介母
-]
-
-/// 注音 D-pad ラベル（ラベル表示型フォールバック用、現在は十字配置を使用）
-let zhuyinDpadLabelsBase = DpadLabels(center: "ㄅㄆㄇㄈ", left: "ㄉㄊㄋㄌ", up: "ㄍㄎㄏ", right: "ㄐㄑㄒ", down: "ㄓㄔㄕㄖ")
-let zhuyinDpadLabelsLB = DpadLabels(center: "ㄗㄘㄙ", left: "ㄚㄛㄜㄝ", up: "ㄞㄟㄠㄡ", right: "ㄢㄣㄤㄥ", down: "ㄧㄨㄩ")
-let zhuyinRowNames = ["ㄅㄆㄇㄈ", "ㄉㄊㄋㄌ", "ㄍㄎㄏ", "ㄐㄑㄒ", "ㄓㄔㄕㄖ", "ㄗㄘㄙ", "ㄚㄛㄜㄝ", "ㄞㄟㄠㄡ", "ㄢㄣㄤㄥ", "ㄧㄨㄩ"]
-
-/// 注音声母 → abbreviated pinyin 頭文字変換マップ
-let zhuyinToPinyinInitial: [Character: Character] = [
-    "ㄅ": "b", "ㄆ": "p", "ㄇ": "m", "ㄈ": "f",
-    "ㄉ": "d", "ㄊ": "t", "ㄋ": "n", "ㄌ": "l",
-    "ㄍ": "g", "ㄎ": "k", "ㄏ": "h",
-    "ㄐ": "j", "ㄑ": "q", "ㄒ": "x",
-    "ㄓ": "z", "ㄔ": "c", "ㄕ": "s", "ㄖ": "r",
-    "ㄗ": "z", "ㄘ": "c", "ㄙ": "s",
-    // 韻母（零声母として使用）
-    "ㄚ": "a", "ㄛ": "o", "ㄜ": "e", "ㄝ": "e",
-    "ㄞ": "a", "ㄟ": "e", "ㄠ": "a", "ㄡ": "o",
-    "ㄢ": "a", "ㄣ": "e", "ㄤ": "a", "ㄥ": "e",
-    "ㄦ": "e",
-    "ㄧ": "y", "ㄨ": "w", "ㄩ": "y",
-]
-
 // MARK: - Devanagari テーブル（varnamala 時計回り方式）
 
 /// LS 方向 → varga index (0-4)

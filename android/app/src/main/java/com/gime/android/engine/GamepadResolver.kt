@@ -10,8 +10,6 @@ enum class GamepadInputMode {
     JAPANESE,
     ENGLISH,
     KOREAN,
-    CHINESE_SIMPLIFIED,
-    CHINESE_TRADITIONAL,
     DEVANAGARI;
 
     val label: String
@@ -19,8 +17,6 @@ enum class GamepadInputMode {
             JAPANESE -> "日本語"
             ENGLISH -> "EN"
             KOREAN -> "한국어"
-            CHINESE_SIMPLIFIED -> "简体"
-            CHINESE_TRADITIONAL -> "繁體"
             DEVANAGARI -> "देव"
         }
 
@@ -230,39 +226,6 @@ val ENGLISH_TABLE: Array<Array<String>> = arrayOf(
 val ENGLISH_ROW_NAMES = arrayOf("(?)", "abc", "def", "ghi", "jkl", "mno", "pqrs", "tuv", "wxyz", "@#-")
 val ENGLISH_DPAD_LABELS_BASE = DpadLabels("(?)", "abc", "def", "ghi", "jkl")
 val ENGLISH_DPAD_LABELS_LB = DpadLabels("mno", "pqrs", "tuv", "wxyz", "@#-")
-
-// MARK: - 中国語（繁體）注音テーブル
-
-val ZHUYIN_TABLE: Array<Array<String>> = arrayOf(
-    arrayOf("1", "ㄅ", "ㄆ", "ㄇ", "ㄈ"),
-    arrayOf("2", "ㄉ", "ㄊ", "ㄋ", "ㄌ"),
-    arrayOf("3", "ㄍ", "ㄎ", "ㄏ", ""),
-    arrayOf("4", "ㄐ", "ㄑ", "ㄒ", ""),
-    arrayOf("5", "ㄓ", "ㄔ", "ㄕ", "ㄖ"),
-    arrayOf("6", "ㄗ", "ㄘ", "ㄙ", ""),
-    arrayOf("7", "ㄚ", "ㄛ", "ㄜ", "ㄝ"),
-    arrayOf("8", "ㄞ", "ㄟ", "ㄠ", "ㄡ"),
-    arrayOf("9", "ㄢ", "ㄣ", "ㄤ", "ㄥ"),
-    arrayOf("0", "ㄧ", "ㄨ", "ㄩ", ""),
-)
-
-val ZHUYIN_ROW_NAMES = arrayOf("ㄅㄆㄇㄈ", "ㄉㄊㄋㄌ", "ㄍㄎㄏ", "ㄐㄑㄒ", "ㄓㄔㄕㄖ", "ㄗㄘㄙ", "ㄚㄛㄜㄝ", "ㄞㄟㄠㄡ", "ㄢㄣㄤㄥ", "ㄧㄨㄩ")
-
-/// 注音声母 → abbreviated pinyin 頭文字変換マップ
-val ZHUYIN_TO_PINYIN_INITIAL: Map<Char, Char> = mapOf(
-    'ㄅ' to 'b', 'ㄆ' to 'p', 'ㄇ' to 'm', 'ㄈ' to 'f',
-    'ㄉ' to 'd', 'ㄊ' to 't', 'ㄋ' to 'n', 'ㄌ' to 'l',
-    'ㄍ' to 'g', 'ㄎ' to 'k', 'ㄏ' to 'h',
-    'ㄐ' to 'j', 'ㄑ' to 'q', 'ㄒ' to 'x',
-    'ㄓ' to 'z', 'ㄔ' to 'c', 'ㄕ' to 's', 'ㄖ' to 'r',
-    'ㄗ' to 'z', 'ㄘ' to 'c', 'ㄙ' to 's',
-    'ㄚ' to 'a', 'ㄛ' to 'o', 'ㄜ' to 'e', 'ㄝ' to 'e',
-    'ㄞ' to 'a', 'ㄟ' to 'e', 'ㄠ' to 'a', 'ㄡ' to 'o',
-    'ㄢ' to 'a', 'ㄣ' to 'e', 'ㄤ' to 'a', 'ㄥ' to 'e',
-    'ㄦ' to 'e',
-    'ㄧ' to 'y', 'ㄨ' to 'w', 'ㄩ' to 'y',
-)
-
 // MARK: - 韓国語テーブル
 
 /// 行(row) → 초성 index のマッピング

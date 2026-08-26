@@ -1,6 +1,10 @@
 # ゲームパッド入力 マッピング仕様書
 
-ゲームパッド（W3C Standard Gamepad Layout 準拠）で日本語・英語・韓国語・中国語簡体字・中国語繁體字・Devanagari を入力する方式。
+ゲームパッド（W3C Standard Gamepad Layout 準拠）で日本語・英語・韓国語・Devanagari を入力する方式。
+
+> **【2026-08-27 撤去】中国語 2 モード（簡体=简拼 / 繁體=注音首）は削除**した（iOS / Android 両方）。
+> 身軽さのための撤去だが実体はライセンスで、**CC-CEDICT（CC BY-SA 4.0）と libchewing（LGPL v2.1）が
+> 配布物から消えた**。実装は git tag `gime-chinese-impl-archive` に保存。
 Start ボタンでモードを切り替える。
 
 > **Devanagari モード**（GIME iOS / Android, Phase A9）は朗唱順ベースの独自 layout を採用しており、本ドキュメントのモード共通原則から外れる。詳細は [`docs/gime-brahmic-expansion-memo.md`](gime-brahmic-expansion-memo.md) を参照。
@@ -20,11 +24,9 @@ Start ボタンでモードを切り替える。
 | 日本語 | 桜色(pink) | ✓ | GCController → GamepadInputManager → **InputManager**（IME 経由） |
 | 韓国語 | indigo | | GCController → GamepadInputManager → **onDirectInsert**（IME バイパス） |
 | 英語 | 緑 | | GCController → GamepadInputManager → **onDirectInsert**（IME バイパス） |
-| 中国語簡体 | 赤 | | GCController → GamepadInputManager → **PinyinEngine** → **onDirectInsert**（IME バイパス） |
-| 中国語繁體 | 青 | | GCController → GamepadInputManager → **注音テーブル** → **PinyinEngine** → **onDirectInsert**（IME バイパス） |
 | Devanagari | 橙(orange) | | GamepadInputManager → **DevanagariComposer**（akshara buffer）→ **onDirectInsert**（IME バイパス） |
 
-サイクル順（Start ボタン）: デフォルトは **日本語 → 韓国語 → 英語 → 中国語簡体 → 中国語繁體 → Devanagari → 日本語**。設定シートで有効/無効の切替と、順序変更が可能。
+サイクル順（Start ボタン）: デフォルトは **日本語 → 韓国語 → 英語 → Devanagari → 日本語**。設定シートで有効/無効の切替と、順序変更が可能。
 
 ---
 
@@ -343,90 +345,6 @@ LT を Caps Lock 様のジェスチャーで切替える（英語の Shift / Cap
 
 ---
 
-## 中国語共通
-
-### テーブル構造
-
-簡体字・繁体字ともに英語 T9 テーブルと同じ 5 列構造: `[RB(数字), X(左), Y(上), B(右), A(下)]`。
-RB で行の数字（1〜0）を入力し、X/Y/B/A で文字（アルファベット or 注音記号）を入力する。
-
-### 数字入力（簡体・繁体共通）
-
-| ボタン | バッファ空 | バッファに文字あり |
-|--------|----------|-----------------|
-| RB | 行の数字（1〜0）挿入 | 無視 |
-| RT 単押し | 「0」挿入 | 無視 |
-
-### 候補操作（簡体・繁体共通）
-
-| 操作 | アクション |
-|------|-----------|
-| 左スティック ↓ | 次の候補を選択 |
-| 左スティック ↑ | 前の候補を選択 |
-| LS 押込み | 選択中の候補を確定・挿入 |
-| RS 押込み | バッファ・候補をクリア |
-| 右スティック ← | バッファ末尾1文字削除（空ならバックスペース） |
-| 右スティック → | 顿号「、」（バッファあれば先頭候補を暗黙確定） |
-| 右スティック ↓ 1回 | 逗号「，」 |
-| 右スティック ↓ 2回（400ms以内） | 逗号→句号「。」に差し替え |
-| 右スティック ↓ 3回（400ms以内） | 句号→空白に差し替え |
-
-### ビジュアライザ（簡体・繁体共通）
-
-- D-pad: 英語モードと同じ十字配置（各ボタン内に X/Y/B/A 対応の文字を上下左右に表示）
-- ピンインバッファ: バッジ横に表示（繁体字は注音記号で表示）
-
----
-
-## 中国語簡体モード（简拼 = Abbreviated Pinyin）
-
-英語 T9 テーブルを再利用してアルファベットを入力し、abbreviated pinyin（ピンインの頭文字）で候補を検索する。IME をバイパスし `onDirectInsert` で直接テキスト挿入。
-
-辞書は CC-CEDICT + OpenSubtitles 頻度リスト上位 50,000 語から生成（~803KB、4,336 keys、16,017 候補）。各キーあたり最大 30 候補を頻度順に収録。
-
-### 文字入力
-
-英語モードと同じ T9 テーブルで小文字アルファベットを入力（フェイスボタン X/Y/B/A）。入力文字はピンインバッファに追加され、`PinyinEngine.lookup()` で候補を検索。
-
-候補は最大9件ずつ表示するスライディングウィンドウ方式で、左スティック↑↓で全候補（最大30件）をスクロール可能。
-
-### 入力例
-
-1. **你好**: D-pad↓ + LB + X = `n`, D-pad→ + Y = `h` → 候補「你好」→ LS 確定
-2. **知道**: D-pad↑ + X = `z`, D-pad↑ + X = `d`（LB解除後） → 候補「知道」→ LS 確定
-
----
-
-## 中国語繁體モード（注音首 = Abbreviated Zhuyin）
-
-注音符号テーブルから声母を入力し、abbreviated zhuyin で候補を検索する。台湾語彙（libchewing ベース）に最適化。
-
-辞書は libchewing tsi.csv 上位 50,000 語から生成（~1.3MB、7,699 keys、23,452 候補）。各キーあたり最大 30 候補を頻度順に収録。候補表示は簡体字と同じスライディングウィンドウ方式。
-
-### 注音テーブル（D-pad + LB で行選択、X/Y/B/A で注音選択、RB で数字）
-
-ㄦ は abbreviated zhuyin で ㄜ と同じ "e" にマップされるため省略。
-
-| 行 | 操作 | RB | X(左) | Y(上) | B(右) | A(下) |
-|----|------|----|-------|-------|-------|-------|
-| 唇音 | ニュートラル | **1** | ㄅ | ㄆ | ㄇ | ㄈ |
-| 舌尖音 | ← | 2 | ㄉ | ㄊ | ㄋ | ㄌ |
-| 舌根音 | ↑ | 3 | ㄍ | ㄎ | ㄏ | — |
-| 舌面音 | → | 4 | ㄐ | ㄑ | ㄒ | — |
-| そり舌音 | ↓ | 5 | ㄓ | ㄔ | ㄕ | ㄖ |
-| 舌歯音 | LB | 6 | ㄗ | ㄘ | ㄙ | — |
-| 単母音 | LB+← | 7 | ㄚ | ㄛ | ㄜ | ㄝ |
-| 複母音 | LB+↑ | 8 | ㄞ | ㄟ | ㄠ | ㄡ |
-| 鼻母音 | LB+→ | 9 | ㄢ | ㄣ | ㄤ | ㄥ |
-| 介母 | LB+↓ | 0 | ㄧ | ㄨ | ㄩ | — |
-
-### 入力例
-
-1. **學校**: ㄒ(→+B) + ㄒ(→+B) → 候補「學校」→ LS 確定
-2. **軟體**: ㄖ(↓+A) + ㄊ(←+Y) → 候補「軟體」→ LS 確定
-
----
-
 ## 入力タイミング
 
 ### Eager Output + Rollback
@@ -460,10 +378,9 @@ Frame 5: LB 押下 (83ms後) → 再差し替え（300ms以内）
 ### モード別表示
 
 - モードバッジ: ビジュアライザ最上部に常時表示（桜色/indigo/緑/赤/青）
-- D-pad: 日本語/韓国語=ラベル表示、英語/簡体字/繁体字=十字配置（X/Y/B/A 対応）
-- フェイスボタン: 日本語=かな、英語=文字（シフト状態反映）、韓国語=母音、簡体字=アルファベット、繁体字=注音記号
-- RB: 日本語=あ段、英語/簡体字/繁体字=数字、韓国語=ㅡ
-- ピンインバッファ: 中国語モード時、バッジ横に表示（繁体字は注音記号で表示）
+- D-pad: 日本語/韓国語=ラベル表示、英語=十字配置（X/Y/B/A 対応）
+- フェイスボタン: 日本語=かな、英語=文字（シフト状態反映）、韓国語=母音
+- RB: 日本語=あ段、英語=数字、韓国語=ㅡ
 - LT/LB 配置: 物理コントローラー準拠（LT=外側、LB=内側）
 - RB/RT 配置: RB=内側、RT=外側
 - **VRChat OSC バッジ** (任意): VRChat OSC 連携が有効なときビジュアライザ左上に紫カプセルで「✈️ VRChat OSC」を表示。Activity 上ではタップで設定画面遷移、IME 上では表示のみ
@@ -496,7 +413,6 @@ LT ラベルが자모 モードの状態に連動:
 | `GamepadResolver.swift` | かなテーブル、英語 T9 テーブル、モード enum、アクション enum |
 | `GamepadInputManager.swift` | GCController 接続監視、スナップショット処理、5モード入力ハンドラ |
 | `KoreanComposer.swift` | ハングル音節合成エンジン、子音/母音テーブル、サイクル/複合母音マップ |
-| `PinyinEngine.swift` | CJK 候補検索エンジン（簡体: CC-CEDICT、繁体: libchewing） |
 | `GamepadVisualizerView.swift` | SwiftUI ビジュアライザ（モード別表示、シフト状態反映） |
 | `App.swift` | アプリエントリポイント、IMETextView 接続、コールバック配線 |
 
@@ -534,9 +450,8 @@ RT+←→=文節伸縮）と Start=確定アンドゥを追加している。**v
 
 | ファイル | 役割 |
 |----------|------|
-| `engine/GamepadResolver.kt` | かな・英語 T9・注音・韓国語子音テーブル、自モ モード用の互換 Jamo テーブル |
+| `engine/GamepadResolver.kt` | かな・英語 T9・韓国語子音テーブル、자모 モード用の互換 Jamo テーブル |
 | `engine/KoreanComposer.kt` | ハングル音節合成エンジン（겹받침対応） |
-| `engine/PinyinEngine.kt` | CJK 候補検索（JSON 辞書、variant 自動切替） |
 | `engine/JapaneseConverter.kt` | KazumaProject エンジンのファサード（文節分割変換） |
 | `input/GamepadSnapshot.kt` | KeyEvent / MotionEvent → 状態 |
 | `input/GamepadInputManager.kt` | 入力パイプライン、文節編集、韓国語合成、자모 모드、LT 長押し / 2連続タップ判定 |
@@ -563,5 +478,5 @@ RT+←→=文節伸縮）と Start=確定アンドゥを追加している。**v
 キーボード:    pressesBegan → KeyEvent → KeyRouter → InputManager
 ゲームパッド:  GCController → GamepadSnapshot → GamepadInputManager
                 → InputManager（日本語: IME 経由）
-                → onDirectInsert（英語/韓国語/中国語: IME バイパス）
+                → onDirectInsert（英語/韓国語: IME バイパス）
 ```

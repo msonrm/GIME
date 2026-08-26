@@ -58,19 +58,13 @@ The App does not integrate with any third-party services for data collection
 or transmission. It includes the following local-only third-party
 components:
 
-- KazumaProject/JapaneseKeyboard (MIT) — Vendored on-device Japanese
-  kana-to-kanji conversion engine and dictionary (LOUDS trie + N-gram
-  language model)
-- CC-CEDICT (CC BY-SA 4.0) — Source data for the Simplified Chinese
-  vocabulary and pinyin information used by the abbreviated-pinyin lookup
-- libchewing (LGPL v2.1) — Source data for the Traditional Chinese
-  vocabulary and zhuyin information used by the abbreviated-zhuyin lookup
+- Mozc (BSD-3-Clause / NAIST License / Public Domain) — On-device Japanese
+  kana-to-kanji conversion engine and dictionary, compiled from
+  fcitx-contrib/fcitx5-mozc and bundled as a native library
 - AndroidX libraries (Apache 2.0) — Standard Android UI / database /
   lifecycle support, including Jetpack Compose and Room
 - kotlinx-serialization-json (Apache 2.0) — Local JSON parsing for
   dictionary files
-- Timber (Apache 2.0) — Local logging facade used by the vendored
-  KazumaProject converter
 
 ## Children's Privacy
 

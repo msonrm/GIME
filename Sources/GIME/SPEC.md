@@ -2,6 +2,10 @@
 
 > **【一部アーカイブ】** VRChat OSC 連携（`OSC/`・`VrChatSettingsView` と App.swift の OSC 配線）は 2026-07 に撤去し、GIME を純 IME 化した。本仕様書中の OSC / chatbox / `VrChatOscOutput` / `VrChatOscSettings` に関する記述はアーカイブであり、現行コードには存在しない。実装と当時のドキュメント一式は git tag `gime-vrchat-impl-archive` に保存（撤去した機能の手引きを配り続けないため、`docs/` 側の OSC 関連ドキュメントはこの repo には含まれない）。
 
+> **【2026-08-27 撤去】中国語 2 モード（簡体=简拼 / 繁體=注音首）を削除**した。`PinyinEngine.swift`・辞書 JSON 2 本（約2.1MB）・`GamepadResolver.swift` の注音テーブル・`GamepadInputManager` / `GamepadVisualizerView` の全分岐が対象。身軽さのための撤去だが実体はライセンスで、**CC-CEDICT（CC BY-SA 4.0）と libchewing（LGPL v2.1）が配布物から消えた**（残るは AzooKey = MIT のみ）。実装は git tag `gime-chinese-impl-archive` に保存。
+
+> **【削除済み】Zenzai**: `ZenzaiModelManager.swift`（GGUF の自動ダウンロード・有効化管理）は **2026-04-03 にモデル読み込みでクラッシュするため削除**した（commit `ab7b6ae`。KanaEditor 側も同時）。GIME に Zenzai の UI は無い。フックだけは KeyLogicKit の OSS API として生きている（`InputManager.zenzaiWeightURL` に GGUF の URL を入れれば有効になる / nil なら `.off`）。
+
 ## 概要
 
 GiME (Gamepad IME) は、iPhone / iPad + ゲームパッドで多言語テキスト入力を行う実験的アプリである（Universal build、iPad はエディタ・ビジュアライザとも大きめフォント、iPhone は compact 幅で縮小レイアウト）。
@@ -11,8 +15,6 @@ GiME (Gamepad IME) は、iPhone / iPad + ゲームパッドで多言語テキス
 - 日本語（かな漢字変換）
 - 英語（T9 ベース）
 - 韓国語（2ボル式 + 자모 모드）
-- 中国語簡体字（abbreviated pinyin / 简拼）
-- 中国語繁體字（abbreviated zhuyin / 注音首）
 - Devanagari（Sanskrit / Hindi / Marathi / Nepali 等、実験的）
 
 共通する設計方針:
@@ -36,12 +38,8 @@ GCController
       英語:         englishTable → onDirectInsert（IME バイパス）
       韓国語:       KoreanComposer → onDirectInsert（IME バイパス）
                     ※ 자모 모드時は合成をバイパスし互換 Jamo を直接 emit
-      中国語簡体:   englishTable → PinyinEngine.lookup → CandidatePopup → onDirectInsert
-      中国語繁體:   注音テーブル → PinyinEngine.lookup（libchewing variant）→ onDirectInsert
       Devanagari:   GamepadResolver の Devanagari テーブル → DevanagariComposer
                     → onDirectInsert（halant 明示方式）
-  → VRChat OSC 出力（opt-in）:
-      composing/確定テキスト → VrChatOscOutput → /chatbox/input, /chatbox/typing
 ```
 
 ### UI 構成
@@ -51,8 +49,7 @@ GIMEApp (@main)
   └── ContentView
         ├── IMETextViewRepresentable（KeyLogicKit のエディタ）
         │     └── CandidatePopup（変換候補、selecting 時のみ表示）
-        ├── GamepadVisualizerView（接続時のみ表示、画面下部）
-        └── VrChatSettingsView（シート、OSC 設定 + テスト送信 + デバッグ受信ログ）
+        └── GamepadVisualizerView（接続時のみ表示、画面下部）
 ```
 
 ### 状態管理
@@ -61,37 +58,30 @@ GIMEApp (@main)
 - `GamepadInputManager`（@Observable）: ゲームパッド接続状態、入力モード、ビジュアライザ用の UI 状態、자모 모드フラグ
 - `KoreanComposer`（struct、値型）: ハングル音節合成状態（GamepadInputManager が所有）
 - `DevanagariComposer`（struct、値型）: Devanagari の cluster 合成・halant 状態・長母音 post-shift（GamepadInputManager が所有）
-- `PinyinEngine`（@Observable）: abbreviated pinyin 辞書ロード・検索（App.swift が所有、GamepadInputManager に注入）
-- `VrChatOscOutput` / `VrChatOscSettings`（@Observable）: OSC 設定・送信ステート（App.swift が所有、opt-in）
-- `ZenzaiModelManager`（@Observable）: Zenzai モデルの自動ダウンロード・有効化管理
 - コールバック（`onCursorMove`, `onCursorMoveVertical`, `onDeleteBackward`, `onDirectInsert`, `onShareText`, `onIdleConfirm`）で ContentView 側に UI 操作を委譲
 
 ## ファイル構成
 
 | ファイル | 役割 |
 |----------|------|
-| `App.swift` | @main エントリポイント。ContentView で IMETextViewRepresentable + GamepadVisualizerView を配置。GamepadInputManager / VrChatOscOutput / ZenzaiModelManager の初期化とコールバック接続を行う |
-| `GamepadResolver.swift` | かなテーブル（10行x5段）、拗音/濁点/半濁点マップ、英語 T9 テーブル、注音テーブル、韓国語子音テーブル、Devanagari varnamala/非 varga/母音テーブル、GamepadAction enum、子音行・母音解決関数 |
-| `GamepadInputManager.swift` | GCController 接続監視、GamepadSnapshot によるボタン状態取得、モード別入力処理（日本語/英語/韓国語/中国語簡体・繁體/Devanagari）、アクション実行、자모 모드管理、LS debounce。入力パイプラインの中核 |
+| `App.swift` | @main エントリポイント。ContentView で IMETextViewRepresentable + GamepadVisualizerView を配置。GamepadInputManager の初期化とコールバック接続を行う |
+| `GamepadResolver.swift` | かなテーブル（10行x5段）、拗音/濁点/半濁点マップ、英語 T9 テーブル、韓国語子音テーブル、Devanagari varnamala/非 varga/母音テーブル、GamepadAction enum、子音行・母音解決関数 |
+| `GamepadInputManager.swift` | GCController 接続監視、GamepadSnapshot によるボタン状態取得、モード別入力処理（日本語/英語/韓国語/Devanagari）、アクション実行、자모 모드管理、LS debounce。入力パイプラインの中核 |
 | `KoreanComposer.swift` | ハングル音節合成エンジン（2ボル式ベース）。Unicode Hangul Syllables ブロックの合成式で文字を生成。子音/母音テーブル、サイクルマップ、複合母音マップを定義 |
 | `DevanagariComposer.swift` | Devanagari cluster 合成エンジン。halant 明示方式で conjunct を構成し、母音記号（matra）・anusvara/chandrabindu・長母音 post-shift を適用。Android 版（Phase A9）の Swift 移植 |
-| `PinyinEngine.swift` | Abbreviated pinyin 検索エンジン。CC-CEDICT + OpenSubtitles 頻度リストから生成した辞書 JSON をロードし、ピンイン頭文字で候補を検索。簡体/繁体の variant 切替に対応 |
-| `GamepadVisualizerView.swift` | SwiftUI ビジュアライザ。モード別の D-pad/フェイスボタンラベル表示、プレビュー文字、操作ガイド、VRChat OSC バッジ |
-| `ZenzaiModelManager.swift` | Zenzai モデル（GGUF）の HuggingFace からの自動ダウンロード・Application Support への保存・`inputManager.zenzaiWeightURL` への設定を管理 |
+| `GamepadVisualizerView.swift` | SwiftUI ビジュアライザ。モード別の D-pad/フェイスボタンラベル表示、プレビュー文字、操作ガイド |
 | `SendTextIntent.swift` | App Intent。ショートカットアプリからエディタのテキスト取得を可能にする |
-| `OSC/OscPacket.swift` | OSC 1.0 encode/decode の自前実装（外部依存なし） |
-| `OSC/OscSender.swift` | Network framework の NWConnection を使った UDP 送信 |
-| `OSC/OscReceiver.swift` | NWListener を使ったデバッグ用 UDP 受信 |
-| `OSC/VrChatOscOutput.swift` | chatbox 専用ラッパー。typing indicator / 144 文字制限 / 100ms debounce / カスタム avatar parameter 送信 |
-| `OSC/VrChatOscSettings.swift` | UserDefaults ベースの OSC 設定永続化（@Observable） |
-| `UI/VrChatSettingsView.swift` | OSC 設定画面 + テスト送信 + デバッグ受信ログ |
+
+> この表は**現行のツリーと一致している**（`Sources/GIME/` の .swift は上の 8 本で全部）。
+> 撤去済みの `OSC/` 5 本・`UI/VrChatSettingsView.swift`・`ZenzaiModelManager.swift` は
+> 冒頭の注記のとおり存在しない（前者は tag `gime-vrchat-impl-archive`、後者は commit `ab7b6ae` の親）。
 
 ## 入力モード
 
-最大 6 モードを Start ボタンでサイクルする。初期モードは日本語。ユーザーは設定画面で使用モードと順序をカスタマイズ可能（`GimeModeSettings` / UserDefaults に永続化）。
+最大 4 モードを Start ボタンでサイクルする。初期モードは日本語。ユーザーは設定画面で使用モードと順序をカスタマイズ可能（`GimeModeSettings` / UserDefaults に永続化）。
 
 ```
-日本語 → 韓国語 → 英語 → 中国語簡体 → 中国語繁體 → Devanagari → 日本語
+日本語 → 韓国語 → 英語 → Devanagari → 日本語
 ```
 
 モード切替時に以下をリセットする:
@@ -99,7 +89,6 @@ GIMEApp (@main)
 - eager output バッファをクリア
 - 英語シフト状態（Shift / SmartCaps / CapsLock）をクリア
 - 韓国語合成状態を確定（commit）、자모 모드も全解除（Lock 含む）
-- 中国語ピンインバッファ・候補をクリア
 - Devanagari composer を commit、非 varga サブレイヤーを OFF
 
 ## 日本語モード
@@ -298,116 +287,6 @@ syllable = 0xAC00 + (onset * 21 + nucleus) * 28 + coda
 
 자모 모드突入時は composing を確定する。ビジュアライザの LT ラベルは通常=「ㅇ」/ Smart=「자모」/ Lock=「LOCK」。
 
-## 中国語簡体モード（简拼 = Abbreviated Pinyin）
-
-英語 T9 テーブルを再利用してアルファベットを入力し、abbreviated pinyin（ピンインの頭文字）で候補を検索する。IME をバイパスし `onDirectInsert` で直接テキスト挿入する。
-
-### Abbreviated Pinyin の概念
-
-単語を構成する各漢字のピンイン頭文字（声母）だけを打って候補から選ぶ入力方式。
-
-| 入力 | 候補例 | ピンイン |
-|------|--------|---------|
-| `nh` | 你好 | nǐ hǎo |
-| `zd` | 知道 | zhī dào |
-| `yg` | 一个 | yī gè |
-| `xh` | 喜欢 | xǐ huān |
-| `aq` | 安全、爱情 | ān quán, ài qíng |
-
-声母抽出ルール:
-- 2文字声母（zh, ch, sh）は1文字目のみ使用（z, c, s）
-- y, w は声母として扱う
-- 零声母（母音始まり）は最初の母音文字を使用（爱→a, 二→e）
-
-### 文字入力
-
-英語モードと同じ T9 テーブルで小文字アルファベットを入力する。入力した文字はピンインバッファに追加され、バッファ全体で `PinyinEngine.lookup()` を呼び出して候補を更新する。
-
-### 候補操作
-
-| 操作 | アクション |
-|------|-----------|
-| 左スティック ↓ | 次の候補を選択 |
-| 左スティック ↑ | 前の候補を選択 |
-| LS 押込み | 選択中の候補を確定・挿入 |
-| RS 押込み | ピンインバッファ・候補をクリア（キャンセル） |
-| 右スティック ← | バッファ末尾1文字削除（空ならバックスペース） |
-| 右スティック → | 顿号「、」（バッファがあれば先頭候補を暗黙確定してから挿入） |
-| 右スティック ↓ | 句読点（「，」→「。」→空白、多段タップで差し替え。バッファがあれば先頭候補を暗黙確定） |
-
-### 辞書
-
-`pinyin_abbrev.json`（~224KB）をバンドルリソースとして同梱。CC-CEDICT をピンイン情報源、OpenSubtitles 頻度リストをランキング源として `scripts/generate_pinyin_dict.py` で生成。
-
-JSON フォーマット（繁体字フィールド `t` を含む、将来の繁体字モード対応用）:
-```json
-{
-  "nh": [
-    {"w": "你好", "t": "你好", "p": "ni3 hao3"},
-    {"w": "女孩", "t": "女孩", "p": "nu:3 hai2"}
-  ]
-}
-```
-
-## 中国語繁體モード（注音首 = Abbreviated Zhuyin）
-
-注音符号テーブルから声母を入力し、abbreviated zhuyin（注音の頭文字）で候補を検索する。IME をバイパスし `onDirectInsert` で直接テキスト挿入する。台湾語彙（軟體、資訊、計程車等）に最適化された辞書を使用。
-
-### 注音テーブル（D-pad + LB で行選択、フェイスボタン + RB で列選択）
-
-| 行 | 操作 | RB | X | Y | B | A |
-|----|------|----|---|---|---|---|
-| 唇音 | ニュートラル | ㄅ | ㄆ | ㄇ | ㄈ | — |
-| 舌尖音 | D-pad ← | ㄉ | ㄊ | ㄋ | ㄌ | — |
-| 舌根音 | D-pad ↑ | ㄍ | ㄎ | ㄏ | — | — |
-| 舌面音 | D-pad → | ㄐ | ㄑ | ㄒ | — | — |
-| そり舌音 | D-pad ↓ | ㄓ | ㄔ | ㄕ | ㄖ | — |
-| 舌歯音 | LB | ㄗ | ㄘ | ㄙ | — | — |
-| 単母音 | LB + ← | ㄚ | ㄛ | ㄜ | ㄝ | — |
-| 複母音 | LB + ↑ | ㄞ | ㄟ | ㄠ | ㄡ | — |
-| 鼻母音 | LB + → | ㄢ | ㄣ | ㄤ | ㄥ | ㄦ |
-| 介母 | LB + ↓ | ㄧ | ㄨ | ㄩ | — | — |
-
-### 入力フロー
-
-注音記号を入力すると、内部で対応する pinyin 頭文字に変換されてバッファに追加される。候補検索は簡体モードと同じ `PinyinEngine.lookup()` を使用するが、辞書は台湾語彙（libchewing ベース）を参照。
-
-```
-注音入力: ㄒ + ㄒ
-  → 内部変換: "xx"
-  → PinyinEngine.lookup("xx", variant: .traditional)
-  → 候補: 學校, 訊息, 信箱, 學系, 學習...（libchewing 頻度順）
-```
-
-注音声母 → pinyin 頭文字の変換は1対1対応。ただし `ㄓ/ㄗ→z`, `ㄔ/ㄘ→c`, `ㄕ/ㄙ→s` は衝突する（abbreviated pinyin の制約）。
-
-### 候補操作
-
-簡体モードと共通。左スティック ↑↓ で選択、LS click で確定、RS click でキャンセル。
-
-### 辞書
-
-`zhuyin_abbrev.json`（~330KB）をバンドルリソースとして同梱。台湾のオープンソース注音入力エンジン libchewing の `tsi.csv` から `scripts/generate_zhuyin_dict.py` で生成。
-
-JSON フォーマット:
-```json
-{
-  "xx": [
-    {"w": "學校", "z": "ㄒㄩㄝˊ ㄒㄧㄠˋ", "p": "xx"},
-    {"w": "訊息", "z": "ㄒㄩㄣˋ ㄒㄧˊ", "p": "xx"}
-  ]
-}
-```
-
-### 簡体モードとの違い
-
-| | 簡体（简拼） | 繁體（注音首） |
-|---|---|---|
-| 入力テーブル | 英語 T9（アルファベット） | 注音テーブル（ㄅㄆㄇㄈ配列） |
-| 辞書ソース | CC-CEDICT + OpenSubtitles | libchewing（台湾語彙） |
-| 読み表示 | ピンイン (ni3 hao3) | 注音 (ㄋㄧˇ ㄏㄠˇ) |
-| バッジ | 简体（赤） | 繁體（オレンジ） |
-
 ## Devanagari モード（実験的）
 
 Sanskrit / Hindi / Marathi / Nepali 等を直接打鍵するモード。Android 版 Phase A9 の Swift 移植（`DevanagariComposer.swift` + `GamepadResolver.swift` の Devanagari テーブル群）。
@@ -470,12 +349,12 @@ L3（LS click）で非 varga サブレイヤーに enter し、य/र/ल/व/�
 
 | 操作 | アクション |
 |------|-----------|
-| LS 押込み | 確定（composing/selecting 時、文節単位の部分確定対応） / 改行（idle 時）。Devanagari では非 varga サブレイヤーのトグル。中国語で候補表示中は選択候補の確定 |
-| RS 押込み | キャンセル（composing 破棄、中国語ではピンインバッファクリア） |
-| Back ボタン | スペース挿入（日本語は IME 経由で appendDirectKana、その他は onDirectInsert。中国語はバッファがあれば先頭候補を暗黙確定） |
+| LS 押込み | 確定（composing/selecting 時、文節単位の部分確定対応） / 改行（idle 時）。Devanagari では非 varga サブレイヤーのトグル |
+| RS 押込み | キャンセル（composing 破棄） |
+| Back ボタン | スペース挿入（日本語は IME 経由で appendDirectKana、その他は onDirectInsert） |
 | Start + Back 同時押し | テキスト共有（composing 確定後、共有シート表示。App Intent 経由でショートカットアプリ連携も可） |
 | 右スティック ← | バックスペース（全モード共通。idle 時は UITextView 側で削除、composing 時は InputManager / composer で削除） |
-| 左スティック ←/→ | カーソル移動（idle 時。英語/韓国語/中国語/Devanagari は常時カーソル移動。中国語で候補表示中は ↑↓ が候補選択に） |
+| 左スティック ←/→ | カーソル移動（idle 時。英語/韓国語/Devanagari は常時カーソル移動） |
 | Start ボタン | モード切替（Start+Back 同時押し時はスキップ）。モード順序は設定画面でカスタマイズ可能 |
 
 ### LS debounce
@@ -546,8 +425,6 @@ visionOS の ARKit Hand Tracking API にそのまま移植できる。
   - 青 = 日本語
   - 緑 = EN
   - 紫 = 한국어（자모 모드時は「자모」/「LOCK」表示）
-  - 赤 = 简体（中国語簡体字モード時、バッジ横にピンインバッファを表示）
-  - 橙 = 繁體（中国語繁體字モード時、注音バッファを表示）
   - 橙 = DEV（Devanagari モード時）
 - **D-pad グリッド（左側）**: モードとレイヤー（LB 押下時、Devanagari は LS latch）に応じたラベルを表示
 - **フェイスボタングリッド（右側）**: モードに応じた文字ラベルを表示
@@ -562,8 +439,6 @@ visionOS の ARKit Hand Tracking API にそのまま移植できる。
 - 英語モード: Shift / SmartCaps / CapsLock 状態がフェイスボタンのラベル（大文字/小文字）と LT ラベル（"SHIFT" / "Caps" / "CAPS"）に反映される
 - 韓国語モード: RT 押下中はフェイスボタンが y系母音ラベルに切り替わる。자모 모드時は互換 Jamo ラベルに切り替わり、LT ラベルは「ㅇ」/「자모」/「LOCK」を状態に応じて表示
 - 日本語モード: LB 押下で D-pad ラベルが は行〜わ行レイヤーに切り替わる
-- 中国語簡体モード: 英語モードと同じ十字配置ラベル（シフトなし）。LT/RT は「—」（未使用）
-- 中国語繁體モード: 注音テーブル配置のラベル
 - Devanagari モード: LS latch 方向で varga を選択するため、D-pad ラベルは latch 状態に応じて書き換わる。非 varga サブレイヤー有効時は य/र/ल/व/श/ष/स/ह の配置に切替
 
 ## エディタ
@@ -589,6 +464,5 @@ visionOS の ARKit Hand Tracking API にそのまま移植できる。
 
 - **Vision Pro 対応**: visionOS でのゲームパッド入力体験
 - **Devanagari の他 Brahmic スクリプトへの拡張**: Bengali / Tamil / Malayalam 等（`docs/gime-brahmic-expansion-memo.md` 参照）
-- **注音フル入力モード**: abbreviated zhuyin では候補が多すぎる場合に、韻母・介母も入力して候補を絞り込めるハイブリッド方式
 - **記号パレット**: Select ボタンから呼び出す記号・絵文字選択 UI
 - **Apple Vision Pro 対応**: 空箱ホールドの発想を visionOS の ARKit Hand Tracking へ移植する構想（下記「カメラモード」参照）

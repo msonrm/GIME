@@ -72,10 +72,8 @@ struct GamepadVisualizerView: View {
         switch mode {
         case .japanese:
             return gamepadInput.activeLayer == .lb ? dpadLabelsLB : dpadLabelsBase
-        case .english, .chineseSimplified:
+        case .english:
             return gamepadInput.activeLayer == .lb ? englishDpadLabelsLB : englishDpadLabelsBase
-        case .chineseTraditional:
-            return gamepadInput.activeLayer == .lb ? zhuyinDpadLabelsLB : zhuyinDpadLabelsBase
         case .korean:
             return gamepadInput.activeLayer == .lb ? koreanDpadLabelsLB : koreanDpadLabelsBase
         case .devanagari:
@@ -110,8 +108,6 @@ struct GamepadVisualizerView: View {
             }
             return row
         case .korean: return isRTPressed ? koreanVowelCharsShifted : koreanVowelCharsBase
-        case .chineseSimplified: return englishTable[gamepadInput.activeRow]
-        case .chineseTraditional: return zhuyinTable[gamepadInput.activeRow]
         case .devanagari:
             // [RB, X, Y, B, A] = [ओ/़, ए, अ, इ, उ]。LT+A は ऋ (拡張母音)。
             // RB の表示は rbLabel で個別に上書きするため、ここでは a 位置に अ を置く。
@@ -129,8 +125,7 @@ struct GamepadVisualizerView: View {
         if gamepadInput.activeLayer == .lb { return "●" }
         switch mode {
         case .japanese: return "は〜"
-        case .english, .chineseSimplified: return "pqrs〜"
-        case .chineseTraditional: return "ㄗㄘㄙ〜"
+        case .english: return "pqrs〜"
         case .korean: return "ㅁ〜"
         case .devanagari: return ""
         }
@@ -147,7 +142,6 @@ struct GamepadVisualizerView: View {
             if gamepadInput.koreanJamoLock { return "LOCK" }    // 持続モード（長押しで toggle）
             if gamepadInput.koreanSmartJamo { return "자모" }   // 一時モード（空白/句読点で解除）
             return "ㅇ"                                          // 通常: 単押しで ㅇ받침
-        case .chineseSimplified, .chineseTraditional: return ""
         case .japanese: return "拗音"
         case .devanagari: return ""  // LT 単押しは emit 無し（拡張母音/sibilant/nukta の修飾子）
         }
@@ -163,7 +157,7 @@ struct GamepadVisualizerView: View {
 
     private var rtLabel: String {
         switch mode {
-        case .english, .chineseSimplified, .chineseTraditional: return "0"
+        case .english: return "0"
         case .korean: return "ㅑㅕ"
         case .japanese: return "ん"
         case .devanagari: return isLTPressed ? "ः" : "्⇆"  // LT+RT=visarga、RT 単=halant、RT+LS=cursor
@@ -175,8 +169,6 @@ struct GamepadVisualizerView: View {
         case .japanese: return .pink
         case .english: return .green
         case .korean: return .indigo
-        case .chineseSimplified: return .red
-        case .chineseTraditional: return .blue
         case .devanagari: return .orange
         }
     }
@@ -190,7 +182,6 @@ struct GamepadVisualizerView: View {
         case .korean:
             // 자모 모드: ↑ = 直前子音 평→격→경 サイクル
             return gamepadInput.isKoreanJamoMode ? "ㄱㅋㄲ" : "ㅋㅌ"
-        case .chineseSimplified, .chineseTraditional: return ""
         case .devanagari: return "ंँ"
         }
     }
@@ -200,7 +191,6 @@ struct GamepadVisualizerView: View {
         case .japanese: return "、。␣"
         case .english: return "␣.,"
         case .korean: return "␣."
-        case .chineseSimplified, .chineseTraditional: return "，。␣"
         case .devanagari: return "␣।"
         }
     }
@@ -214,7 +204,6 @@ struct GamepadVisualizerView: View {
         case .korean:
             // 자모 모드: → = 直前 jamo の連打（연타）
             return gamepadInput.isKoreanJamoMode ? "연타" : "ㅘㅝ"
-        case .chineseSimplified, .chineseTraditional: return "、"
         case .devanagari: return "ा"  // 短母音 → 長母音 post-shift（schwa 状態では ा を追加）
         }
     }
@@ -231,18 +220,6 @@ struct GamepadVisualizerView: View {
                     .foregroundStyle(.white)
                     .clipShape(Capsule())
                     .accessibilityLabel("入力モード: \(mode.label)")
-
-                // 中国語モード: バッファ表示（繁体字は注音、簡体字はピンイン）
-                if (mode == .chineseSimplified || mode == .chineseTraditional) && !gamepadInput.pinyinBuffer.isEmpty {
-                    let bufferText = mode == .chineseTraditional ? gamepadInput.zhuyinDisplayBuffer : gamepadInput.pinyinBuffer
-                    Text(bufferText)
-                        .font(.system(size: 16, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Color(.systemGray5), in: RoundedRectangle(cornerRadius: 6))
-                        .accessibilityLabel("入力中: \(bufferText)")
-                }
 
                 Spacer()
 
@@ -342,17 +319,12 @@ struct GamepadVisualizerView: View {
         if mode == .english {
             return englishDpadCrossChars(row: row)
         }
-        if mode == .chineseTraditional {
-            let r = zhuyinTable[row]
-            return (left: r[1], up: r[2], right: r[3], down: r[4])
-        }
-        // 簡体字: シフトなしで英語テーブルを使用
         let r = englishTable[row]
         return (left: r[1], up: r[2], right: r[3], down: r[4])
     }
 
     private var dpadGrid: some View {
-        let useCrossLayout = mode == .english || mode == .chineseSimplified || mode == .chineseTraditional
+        let useCrossLayout = mode == .english
         let offset = gamepadInput.activeLayer == .lb ? 5 : 0
         let cell = m.dpadCell
 
@@ -541,15 +513,6 @@ struct GamepadVisualizerView: View {
             if dir == .down { return "⇩" }
             return cursorArrowLabel(dir)
         }
-        // 中国語 / 候補表示中: ↑↓ だけ特殊（候補サイクル）。←→ は LS では未使用。
-        let isChinese = mode == .chineseSimplified || mode == .chineseTraditional
-        if isChinese && !gamepadInput.pinyinCandidates.isEmpty {
-            switch dir {
-            case .up: return "⇧"
-            case .down: return "⇩"
-            default: return ""
-            }
-        }
         return cursorArrowLabel(dir)
     }
 
@@ -601,13 +564,6 @@ struct GamepadVisualizerView: View {
             case .right: return "ㅘ"
             case .neutral: return ""
             }
-        case .chineseSimplified, .chineseTraditional:
-            switch dir {
-            case .down: return "，"
-            case .left: return "⌫"
-            case .right: return "、"
-            default: return ""
-            }
         case .devanagari:
             switch dir {
             case .up: return "ं"
@@ -641,8 +597,6 @@ struct GamepadVisualizerView: View {
                 let im = gamepadInput.inputManager
                 let isConverting = im.state == .selecting || im.state == .previewing
                 return (isConverting || !im.isEmpty) ? "✓" : "↵"
-            case .chineseSimplified, .chineseTraditional:
-                return gamepadInput.pinyinCandidates.isEmpty ? "↵" : "✓"
             default:
                 return "↵"
             }
@@ -798,26 +752,6 @@ private struct GamepadSettingsSheet: View {
                                 .foregroundStyle(.secondary)
                         }
                         .font(.caption)
-                    }
-                    .font(.subheadline)
-
-                    DisclosureGroup("CC-CEDICT") {
-                        Text("Creative Commons Attribution-ShareAlike 4.0 International")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text("簡体字辞書データの語彙・ピンイン情報に使用")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .font(.subheadline)
-
-                    DisclosureGroup("libchewing") {
-                        Text("LGPL v2.1 — libchewing contributors")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text("繁體字辞書データの語彙・注音情報に使用")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                     }
                     .font(.subheadline)
                 } header: {

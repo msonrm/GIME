@@ -11,14 +11,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import com.gime.android.engine.JapaneseConverter
+import com.gime.android.engine.MozcUserDictionary
 import com.gime.android.input.GamepadInputManager
 import com.gime.android.input.GamepadSnapshot
-import com.gime.android.learn.DatabaseProvider
 import com.gime.android.settings.GimeModeSettings
 import com.gime.android.ui.GimeApp
 import com.gime.android.ui.GimeTheme
-import com.kazumaproject.markdownhelperkeyboard.repository.LearnRepository
-import com.kazumaproject.markdownhelperkeyboard.repository.UserDictionaryRepository
 
 /// GIME Android メインアクティビティ
 /// ゲームパッドの KeyEvent / MotionEvent を横取りして GamepadInputManager に渡す
@@ -30,22 +28,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // PinyinEngine のロードは初回モード切替時に遅延ロードでも良いが、ここで先にロードする
-        val pinyinEngine = com.gime.android.engine.PinyinEngine()
-        pinyinEngine.load(this)
-        inputManager.pinyinEngine = pinyinEngine
 
-        // ローカル DB（ユーザー辞書・学習）を用意し、変換エンジンに注入する
-        val db = DatabaseProvider.get(this)
-        val userDict = UserDictionaryRepository(db.userWordDao())
-        val learnRepo = LearnRepository(db.learnDao())
-
-        // 日本語かな漢字変換エンジンを非同期で初期化（バンドル辞書を assets から読み込む）
-        val japaneseConverter = JapaneseConverter().apply {
-            this.userDict = userDict
-            this.learnRepo = learnRepo
+        // 日本語かな漢字変換エンジン（Mozc）を非同期で初期化。
+        // 立ち上がったら、旧エンジン時代に Room へ登録されたユーザー辞書を一度だけ移す。
+        val japaneseConverter = JapaneseConverter()
+        japaneseConverter.initializeAsync(this, lifecycleScope) {
+            MozcUserDictionary.migrateFromLegacyRoom(applicationContext)
         }
-        japaneseConverter.initializeAsync(this, lifecycleScope)
         inputManager.japaneseConverter = japaneseConverter
         // 変換は非同期で行うためスコープを渡す
         inputManager.coroutineScope = lifecycleScope
@@ -59,9 +48,7 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     GimeApp(
                         inputManager = inputManager,
-                        pinyinEngine = pinyinEngine,
-                        userDict = userDict,
-                        learnRepo = learnRepo,
+                        converter = japaneseConverter,
                     )
                 }
             }

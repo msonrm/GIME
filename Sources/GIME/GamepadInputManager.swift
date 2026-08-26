@@ -78,11 +78,6 @@ final class GamepadInputManager {
     private(set) var rightStickDirection: StickDirection = .neutral
     private(set) var currentMode: GamepadInputMode = .japanese
 
-    /// 中国語モード判定（簡体/繁体共通のロジック用）
-    var isChinese: Bool {
-        currentMode == .chineseSimplified || currentMode == .chineseTraditional
-    }
-
     /// Start ボタンでサイクルする言語の順序（配列の順序で切り替わる）
     var enabledModes: [GamepadInputMode] = GamepadInputMode.allCases
 
@@ -253,31 +248,6 @@ final class GamepadInputManager {
     /// RT 押下中にカーソル移動を発火したか（release 時に halant を抑止するフラグ）
     private var devaRtUsedForCursor: Bool = false
 
-    // 中国語モード状態
-    private(set) var pinyinBuffer: String = ""
-    /// 繁体字モード用: 注音表示バッファ（pinyinBuffer と並行して蓄積）
-    private(set) var zhuyinDisplayBuffer: String = ""
-    private(set) var pinyinCandidates: [PinyinCandidate] = []
-    private(set) var pinyinSelectedIndex: Int = 0
-    var pinyinEngine: PinyinEngine?
-
-    /// スライディングウィンドウの表示開始位置
-    private(set) var pinyinWindowStart: Int = 0
-    /// ウィンドウサイズ（CandidatePopup と同じ最大9件）
-    private static let pinyinWindowSize = 9
-
-    /// 現在のウィンドウ内に表示する候補
-    var visiblePinyinCandidates: [PinyinCandidate] {
-        guard !pinyinCandidates.isEmpty else { return [] }
-        let end = min(pinyinWindowStart + Self.pinyinWindowSize, pinyinCandidates.count)
-        return Array(pinyinCandidates[pinyinWindowStart..<end])
-    }
-
-    /// ウィンドウ内での選択位置（0-based）
-    var pinyinSelectedIndexInWindow: Int {
-        pinyinSelectedIndex - pinyinWindowStart
-    }
-
     // MARK: - Init
 
     init(inputManager: InputManager) {
@@ -386,24 +356,6 @@ final class GamepadInputManager {
             } else {
                 newPreview = nil
             }
-        case .chineseSimplified:
-            if vowelNow {
-                let char = englishTable[row][v]
-                if char.isEmpty { newPreview = nil }
-                else if char.first?.isNumber == true { newPreview = nil }
-                else { newPreview = char }
-            } else {
-                newPreview = nil
-            }
-        case .chineseTraditional:
-            if vowelNow {
-                let char = zhuyinTable[row][v]
-                if char.isEmpty { newPreview = nil }
-                else if char.first?.isNumber == true { newPreview = nil }
-                else { newPreview = char }
-            } else {
-                newPreview = nil
-            }
         case .devanagari:
             // Devanagari は独自レイヤーのため既存の activeRow/vowel 経由のプレビューは出さない。
             // ビジュアライザ側で devaLsDir / devaNonVargaActive を見て描画する。
@@ -452,10 +404,6 @@ final class GamepadInputManager {
             handleEnglishInput(gp, row: row, vowel: vowel, ltNow: ltNow, rtNow: rtNow, now: now)
         case .korean:
             handleKoreanInput(gp, row: row, vowel: vowel, ltNow: ltNow, rtNow: rtNow, now: now)
-        case .chineseSimplified:
-            handleChineseInput(gp, row: row, vowel: vowel, ltNow: ltNow, rtNow: rtNow, now: now)
-        case .chineseTraditional:
-            handleZhuyinInput(gp, row: row, vowel: vowel, ltNow: ltNow, rtNow: rtNow, now: now)
         case .devanagari:
             handleDevanagariInput(
                 gp: gp, ltNow: ltNow, rtNow: rtNow,
@@ -469,11 +417,7 @@ final class GamepadInputManager {
 
         // === 右スティック（共通: ← バックスペース） ===
         if rStickLeft && !prevRStickLeft {
-            if isChinese && !pinyinBuffer.isEmpty {
-                pinyinBuffer.removeLast()
-                if !zhuyinDisplayBuffer.isEmpty { zhuyinDisplayBuffer.removeLast() }
-                updatePinyinCandidates()
-            } else if currentMode == .devanagari {
+            if currentMode == .devanagari {
                 // Devanagari: composer の buffer を 1 文字 backspace し
                 // 表示も 1 文字削除。composer 側が state を再計算する。
                 if let out = devanagariComposer.backspace() {
@@ -507,12 +451,6 @@ final class GamepadInputManager {
                 // → 複合母音（ㅏ/ㅓ付加: ㅗ→ㅘ, ㅜ→ㅝ）
                 if rStickRight && !prevRStickRight { handleKoreanVowelAddAEo() }
             }
-        case .chineseSimplified, .chineseTraditional:
-            // → 顿号（バッファあれば先に先頭候補を確定）
-            if rStickRight && !prevRStickRight {
-                confirmPinyinTopCandidate()
-                onDirectInsert?("、", 0)
-            }
         case .devanagari:
             // Devanagari の RS ↑ (anusvara) / RS → (long shift) は handleDevanagariInput() 内で処理
             break
@@ -525,7 +463,6 @@ final class GamepadInputManager {
                 commitKoreanComposer()
                 releaseKoreanSmartJamo()
             }
-            if isChinese { confirmPinyinTopCandidate() }
             if currentMode == .english { englishSmartCaps = false }
 
             // 多段タップ判定
@@ -569,16 +506,6 @@ final class GamepadInputManager {
                     rStickDownTapCount = 0
                     rStickDownLastTime = 0
                 }
-            case .chineseSimplified, .chineseTraditional:
-                // 逗号(，) → 句号(。) → 空白
-                switch rStickDownTapCount {
-                case 0: onDirectInsert?("，", 0)
-                case 1: onDirectInsert?("。", 1)
-                default:
-                    onDirectInsert?(" ", 1)
-                    rStickDownTapCount = 0
-                    rStickDownLastTime = 0
-                }
             case .devanagari:
                 // ␣ → । (danda) → ॥ (double danda)
                 switch rStickDownTapCount {
@@ -600,31 +527,8 @@ final class GamepadInputManager {
         // 使うので、この共通経路は一切通さない。handleDevanagariInput() が処理済み。
         if currentMode == .devanagari {
             // no-op
-        } else if isChinese && !pinyinCandidates.isEmpty {
-            // 中国語候補選択中: ↑↓ で候補移動（スライディングウィンドウ）
-            if lStickDown && !prevLStickDown {
-                if pinyinSelectedIndex < pinyinCandidates.count - 1 {
-                    pinyinSelectedIndex += 1
-                    // ウィンドウ下端を超えたらスライド
-                    if pinyinSelectedIndex >= pinyinWindowStart + Self.pinyinWindowSize {
-                        pinyinWindowStart = pinyinSelectedIndex - Self.pinyinWindowSize + 1
-                    }
-                }
-            }
-            if lStickUp && !prevLStickUp {
-                if pinyinSelectedIndex > 0 {
-                    pinyinSelectedIndex -= 1
-                    // ウィンドウ上端を超えたらスライド
-                    if pinyinSelectedIndex < pinyinWindowStart {
-                        pinyinWindowStart = pinyinSelectedIndex
-                    }
-                }
-            }
-            // ←→ はカーソル移動
-            if lStickRight && !prevLStickRight { onCursorMove?(1) }
-            if lStickLeft && !prevLStickLeft { onCursorMove?(-1) }
-        } else if currentMode == .english || currentMode == .korean || isChinese {
-            // 英語/韓国語/中国語（候補なし）: 常にカーソル移動（上下左右）
+        } else if currentMode == .english || currentMode == .korean {
+            // 英語/韓国語: 常にカーソル移動（上下左右）
             let lstickEdge = (lStickRight && !prevLStickRight) ||
                 (lStickLeft && !prevLStickLeft) ||
                 (lStickUp && !prevLStickUp) ||
@@ -671,7 +575,6 @@ final class GamepadInputManager {
                     commitKoreanComposer()
                     releaseKoreanSmartJamo()
                 }
-                if isChinese { confirmPinyinTopCandidate() }
                 onDirectInsert?(" ", 0)
             }
         }
@@ -679,9 +582,7 @@ final class GamepadInputManager {
         // 再落ちエッジは無視する（Android 版と同じ方針）。
         if prevLS && !gp.lsClick && now >= lastLsEdgeTime + lsDebounceInterval {
             lastLsEdgeTime = now
-            if isChinese && !pinyinCandidates.isEmpty {
-                confirmPinyinSelectedCandidate()
-            } else if currentMode == .devanagari {
+            if currentMode == .devanagari {
                 if gp.rtValue > stickThreshold {
                     // RT 押下中の LS click = 改行。
                     // RT+LS 方向はカーソル移動、RT+LS click はその拡張で改行を割当。
@@ -707,11 +608,7 @@ final class GamepadInputManager {
             }
         }
         if prevRS && !gp.rsClick {
-            if isChinese && !pinyinBuffer.isEmpty {
-                clearPinyinState()
-            } else {
-                executeAction(.cancel)
-            }
+            executeAction(.cancel)
         }
 
         // === Start+Back 同時押し=テキスト共有, Start 単体=モード切替 ===
@@ -742,7 +639,6 @@ final class GamepadInputManager {
             resetJamoState()
             koreanLTHolding = false
             koreanLTShortTapEligible = false
-            clearPinyinState()
             // Devanagari もリセット
             devanagariComposer.commit()
             devaNonVargaActive = false
@@ -751,12 +647,6 @@ final class GamepadInputManager {
             prevDevaFace = nil
             prevDevaRawLsDir = .neutral
             devaRtUsedForCursor = false
-            // 中国語モードの variant を同期
-            if currentMode == .chineseSimplified {
-                pinyinEngine?.variant = .simplified
-            } else if currentMode == .chineseTraditional {
-                pinyinEngine?.variant = .traditional
-            }
         }
 
         // --- 前フレーム状態更新 ---
@@ -1347,80 +1237,6 @@ final class GamepadInputManager {
             jamoEagerLen = (newChar as NSString).length
         }
     }
-
-    // MARK: - 中国語入力（簡体・繁体共通）
-
-    /// 中国語モード共通: RB 数字入力 + RT「0」入力（バッファ空のときだけ）
-    private func handleChineseDigits(row: Int, vowel: VowelButton?, digit: String,
-                                     ltNow: Bool, rtNow: Bool) {
-        // RB（数字）: バッファが空のときだけ挿入
-        if vowel == .a && pinyinBuffer.isEmpty {
-            let vowelChanged = vowel != prevVowel
-            let rowChanged = row != prevRow
-            if prevVowel == nil || vowelChanged || rowChanged {
-                onDirectInsert?(digit, 0)
-            }
-        }
-
-        // RT: 数字「0」入力
-        if rtNow && !prevRT { rtUsed = false }
-        if !rtNow && prevRT {
-            if !rtUsed && !ltNow && pinyinBuffer.isEmpty {
-                onDirectInsert?("0", 0)
-            }
-            rtUsed = false
-        }
-    }
-
-    /// 簡体字入力（abbreviated pinyin）
-    private func handleChineseInput(_ gp: GamepadSnapshot, row: Int, vowel: VowelButton?,
-                                    ltNow: Bool, rtNow: Bool, now: TimeInterval) {
-        let v = vowel?.rawValue ?? 0
-
-        handleChineseDigits(row: row, vowel: vowel, digit: englishTable[row][0],
-                            ltNow: ltNow, rtNow: rtNow)
-
-        // フェイスボタン（X/Y/B/A）: アルファベットをバッファに追加
-        if let vowel, vowel != .a {
-            let char = englishTable[row][v]
-            guard !char.isEmpty else { return }
-            let lower = char.lowercased()
-            guard lower.first?.isLetter == true else { return }
-
-            let vowelChanged = vowel != prevVowel
-            let rowChanged = row != prevRow
-            if prevVowel == nil || vowelChanged || rowChanged {
-                pinyinBuffer += lower
-                updatePinyinCandidates()
-            }
-        }
-    }
-
-    /// 繁体字入力（abbreviated zhuyin）
-    private func handleZhuyinInput(_ gp: GamepadSnapshot, row: Int, vowel: VowelButton?,
-                                   ltNow: Bool, rtNow: Bool, now: TimeInterval) {
-        let v = vowel?.rawValue ?? 0
-
-        handleChineseDigits(row: row, vowel: vowel, digit: zhuyinTable[row][0],
-                            ltNow: ltNow, rtNow: rtNow)
-
-        // フェイスボタン（X/Y/B/A）: 注音をバッファに追加
-        if let vowel, vowel != .a {
-            let char = zhuyinTable[row][v]
-            guard !char.isEmpty else { return }
-            guard let zhuyinChar = char.first,
-                  let pinyinChar = zhuyinToPinyinInitial[zhuyinChar] else { return }
-
-            let vowelChanged = vowel != prevVowel
-            let rowChanged = row != prevRow
-            if prevVowel == nil || vowelChanged || rowChanged {
-                pinyinBuffer += String(pinyinChar)
-                zhuyinDisplayBuffer += String(zhuyinChar)
-                updatePinyinCandidates()
-            }
-        }
-    }
-
     // MARK: - Devanagari 入力
 
     /// Devanagari モードの入力処理。
@@ -1621,45 +1437,6 @@ final class GamepadInputManager {
         prevDevaFace = face
         prevDevaRawLsDir = rawLsDir
     }
-
-    // MARK: - 中国語ヘルパー
-
-    /// ピンインバッファに基づいて候補を更新する
-    private func updatePinyinCandidates() {
-        pinyinSelectedIndex = 0
-        pinyinWindowStart = 0
-        pinyinCandidates = pinyinEngine?.lookup(pinyinBuffer) ?? []
-    }
-
-    /// 選択中の候補を確定して挿入する
-    private func confirmPinyinSelectedCandidate() {
-        guard !pinyinCandidates.isEmpty,
-              pinyinSelectedIndex < pinyinCandidates.count else { return }
-        let candidate = pinyinCandidates[pinyinSelectedIndex]
-        let text = pinyinEngine?.displayText(for: candidate) ?? candidate.word
-        onDirectInsert?(text, 0)
-        clearPinyinState()
-    }
-
-    /// バッファに候補があれば先頭候補を確定する（スペース・句読点入力前の暗黙確定）
-    private func confirmPinyinTopCandidate() {
-        guard !pinyinBuffer.isEmpty else { return }
-        if let first = pinyinCandidates.first {
-            let text = pinyinEngine?.displayText(for: first) ?? first.word
-            onDirectInsert?(text, 0)
-        }
-        clearPinyinState()
-    }
-
-    /// ピンイン状態をクリアする
-    private func clearPinyinState() {
-        pinyinBuffer = ""
-        zhuyinDisplayBuffer = ""
-        pinyinCandidates = []
-        pinyinSelectedIndex = 0
-        pinyinWindowStart = 0
-    }
-
     // MARK: - アクション実行
 
     private func executeAction(_ action: GamepadAction) {
@@ -1687,7 +1464,6 @@ final class GamepadInputManager {
                 commitKoreanComposer()
                 releaseKoreanSmartJamo()
             }
-            if isChinese { clearPinyinState() }
             if inputManager.isEmpty {
                 // idle 時: UITextView 側で1文字削除
                 onDeleteBackward?()

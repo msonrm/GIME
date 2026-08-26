@@ -15,3 +15,9 @@ captures/
 *.jks
 *.keystore
 keystore.properties
+
+# hechima ネイティブ成果物（Mozc）。git には入れず Release から取ってくる。
+# 取得: bash android/scripts/fetch-hechima-native.sh
+# ビルド: labo の .github/workflows/mozc-android.yml
+app/src/main/jniLibs/
+app/src/main/assets/mozc.data

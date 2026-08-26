@@ -1,5 +1,17 @@
 # GIME Android かな漢字変換エンジン — vendor 素性と更新手順
 
+> **【アーカイブ】2026-08-27 に vendor は撤去した。** GIME Android のかな漢字変換は
+> **Mozc 一本**になり（`libhechima.so` + `mozc.data`、ラッパーは hechima と共通）、
+> `com/kazumaproject/` 57 ファイル・旧辞書 assets 約15MB・`android/scripts/sync-kazuma-converter.sh`
+> はすべて削除された。**この文書の手順はもう実行できない。**
+>
+> 残してあるのは**素性の記録**のため —— 2026-04 から 2026-08 までの GIME Android は
+> ここに書かれた版の vendor で動いており、その間の配布物が何を含んでいたか
+> （辞書の provenance・UT 辞書を含まないこと）を後から辿れるようにしておく。
+>
+> 現行の構成は `hechima-wasm/README.md`「ネイティブビルド (Android / iOS)」節を参照。
+
+
 GIME Android の日本語かな漢字変換は、上流の OSS キーボードアプリ
 **[KazumaProject/JapaneseKeyboard](https://github.com/KazumaProject/JapaneseKeyboard)**
 （通称「スミレ」、MIT License）の変換モジュールを**ソースコピー (vendor)** して

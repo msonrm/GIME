@@ -50,48 +50,18 @@ SOFTWARE.
 
 ---
 
-## JapaneseKeyboard (KazumaProject) — GIME Android 版のかな漢字変換
+## Mozc — GIME Android 版のかな漢字変換エンジンと辞書
 
-GIME Android 版のかな漢字変換エンジン（LOUDS trie + N-gram 言語モデル）は、
-KazumaProject/JapaneseKeyboard の converter モジュール + 辞書ファイルを
-MIT ライセンスで vendor したもの。
+GIME Android 版のかな漢字変換は **google/mozc** そのもの。
+fcitx-contrib/fcitx5-mozc のビルドを Android NDK でコンパイルした
+`libhechima.so` と、上流の辞書 `mozc.data`（`assets/`、約18.9MB）を同梱している。
+ラッパー（converter 層だけを叩く薄い C++）は hechima（web / Obsidian 向けの
+日本語入力スタック）と共通の 1 本。
 
-- **Repository:** https://github.com/KazumaProject/JapaneseKeyboard
-- **Author:** Kazuma Naka
-- **License:** MIT License
-- **Copyright:** Copyright (c) 2024 Kazuma Naka
-
-```
-MIT License
-
-Copyright (c) 2024 Kazuma Naka
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
----
-
-## Mozc — GIME Android 版の辞書データ
-
-GIME Android 版の辞書データ（`android/app/src/main/assets/` の system 辞書・
-単漢字・連接コスト・品詞テーブル等、約15MB）は、上流スミレ
-（KazumaProject/JapaneseKeyboard）が利用する **google/mozc** の system 辞書に由来する。
+> **2026-08-27 まで**は KazumaProject/JapaneseKeyboard（MIT、通称スミレ）の
+> converter モジュールを vendor して使っていた（辞書は同じく mozc 由来）。
+> 変換基盤を自前の管理下に置くため Mozc へ一本化し、vendor は撤去した。
+> 素性の記録は `docs/gime-android-converter-vendor.md`（アーカイブ）に残してある。
 Mozc UT 拡張辞書（人名 / 住所 / Web / Wiki / Neologd、CC BY-SA）は同梱していない
 （`JapaneseConverter` がロードを無効化しており、assets にも該当ファイルは無い）。
 詳細は `docs/gime-android-converter-vendor.md` を参照。

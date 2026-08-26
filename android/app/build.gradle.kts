@@ -64,6 +64,14 @@ android {
     }
 
     buildTypes {
+        debug {
+            // ★リリース版（署名が別）と**共存**させる。
+            // 同じ applicationId だと INSTALL_FAILED_UPDATE_INCOMPATIBLE になり、
+            // 実機に入れるのに既存アプリの削除（= 設定と学習の消失）が要る。
+            // 別 ID にしておけば、リリース版を残したまま検証できて A/B も取れる。
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
         release {
             isMinifyEnabled = true
             proguardFiles(
@@ -91,6 +99,14 @@ android {
         compose = true
     }
 
+    androidResources {
+        // ★mozc.data（18.9MB）を圧縮しない。
+        // JNI 層が AAsset_getBuffer で **mmap したまま** DataManager に渡すため。
+        // 圧縮されていると RAM 上に丸ごと展開されてしまう（= 18.9MB 常駐）。
+        // mozc.data はもともとほぼ非圧縮性のデータなので APK サイズの増分は小さい。
+        noCompress += "data"
+    }
+
     packaging {
         resources {
             excludes += setOf(
@@ -98,6 +114,11 @@ android {
                 "META-INF/LICENSE.md",
                 "META-INF/NOTICE.md",
             )
+        }
+        jniLibs {
+            // libhechima.so は Mozc + abseil + protobuf を静的に抱えているので大きい。
+            // 展開せず APK 内から直接ロードする（インストールサイズを二重にしない）
+            useLegacyPackaging = false
         }
     }
 }

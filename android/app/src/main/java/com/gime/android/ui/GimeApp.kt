@@ -21,10 +21,8 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.gime.android.engine.PinyinEngine
+import com.gime.android.engine.JapaneseConverter
 import com.gime.android.input.GamepadInputManager
-import com.kazumaproject.markdownhelperkeyboard.repository.LearnRepository
-import com.kazumaproject.markdownhelperkeyboard.repository.UserDictionaryRepository
 
 /// GIME メイン画面（エディタ + ゲームパッドビジュアライザ）
 @OptIn(
@@ -34,19 +32,16 @@ import com.kazumaproject.markdownhelperkeyboard.repository.UserDictionaryReposit
 @Composable
 fun GimeApp(
     inputManager: GamepadInputManager,
-    pinyinEngine: PinyinEngine,
-    userDict: UserDictionaryRepository? = null,
-    learnRepo: LearnRepository? = null,
+    converter: JapaneseConverter? = null,
 ) {
     val context = LocalContext.current
     var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
     var showDictionary by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
 
-    if (showDictionary && userDict != null && learnRepo != null) {
+    if (showDictionary && converter != null) {
         DictionaryScreen(
-            userDict = userDict,
-            learnRepo = learnRepo,
+            converter = converter,
             onClose = { showDictionary = false },
         )
         return
@@ -176,7 +171,7 @@ fun GimeApp(
                             as android.view.inputmethod.InputMethodManager
                     imm.showInputMethodPicker()
                 }) { Text("IME切替") }
-                if (userDict != null && learnRepo != null) {
+                if (converter != null) {
                     TextButton(onClick = { showDictionary = true }) { Text("辞書") }
                 }
                 TextButton(onClick = { showSettings = true }) { Text("設定") }
@@ -301,70 +296,10 @@ fun GamepadVisualizer(
 fun CandidateOverlay(
     inputManager: GamepadInputManager,
 ) {
-    val hasPinyin = inputManager.pinyinCandidates.isNotEmpty()
     val hasJapanese = inputManager.hiraganaBuffer.isNotEmpty() || inputManager.isConverting
-    if (!hasPinyin && !hasJapanese) return
+    if (!hasJapanese) return
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        // 中国語候補表示（該当時のみ）— 日本語モードと同じレイアウト（FlowRow + ページ表示）
-        if (hasPinyin) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(8.dp))
-                    .padding(8.dp),
-            ) {
-                if (inputManager.pinyinBuffer.isNotEmpty()) {
-                    val displayBuffer = if (inputManager.zhuyinDisplayBuffer.isNotEmpty()) {
-                        inputManager.zhuyinDisplayBuffer
-                    } else {
-                        inputManager.pinyinBuffer
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "拼音: ",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp,
-                        )
-                        Text(
-                            text = displayBuffer,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 16.sp,
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                }
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    inputManager.visiblePinyinCandidates.forEachIndexed { i, candidate ->
-                        val isSelected = i == inputManager.pinyinSelectedIndexInWindow
-                        Text(
-                            text = "${i + 1}.${candidate.word}",
-                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary
-                                    else MaterialTheme.colorScheme.onSurface,
-                            fontSize = 14.sp,
-                            modifier = if (isSelected) Modifier
-                                .background(
-                                    MaterialTheme.colorScheme.primary,
-                                    RoundedCornerShape(6.dp),
-                                )
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                            else Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        )
-                    }
-                }
-                Text(
-                    text = "${inputManager.pinyinSelectedIndex + 1} / ${inputManager.pinyinCandidates.size}",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-        }
 
         if (hasJapanese) {
             Column(
@@ -651,10 +586,6 @@ private fun getCellChars(
             val r = com.gime.android.engine.ENGLISH_TABLE.getOrNull(row) ?: return emptyArray()
             if (englishShift) r.map { it.uppercase() }.toTypedArray() else r
         }
-        com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED ->
-            com.gime.android.engine.ENGLISH_TABLE.getOrNull(row) ?: emptyArray()
-        com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL ->
-            com.gime.android.engine.ZHUYIN_TABLE.getOrNull(row) ?: emptyArray()
         com.gime.android.engine.GamepadInputMode.KOREAN -> {
             val labels = if (row < 5) com.gime.android.engine.KOREAN_DPAD_LABELS_BASE
             else com.gime.android.engine.KOREAN_DPAD_LABELS_LB
@@ -928,17 +859,6 @@ private fun lsDirectionLabel(
             else -> cursorArrowLabel(dir)
         }
     }
-    // 中国語 / 候補表示中: ↑↓ だけ特殊（候補サイクル）。
-    // ←→ は LS では未使用（カーソル移動も発火しない）ので空欄。
-    val isChinese = mode == com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED ||
-                    mode == com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL
-    if (isChinese && m.pinyinCandidates.isNotEmpty()) {
-        return when (dir) {
-            GamepadInputManager.StickDirection.UP -> "⇧"
-            GamepadInputManager.StickDirection.DOWN -> "⇩"
-            else -> ""
-        }
-    }
     // フォールバック: カーソル移動
     return cursorArrowLabel(dir)
 }
@@ -988,13 +908,6 @@ private fun rsDirectionLabel(
             GamepadInputManager.StickDirection.NEUTRAL -> ""
         }
     }
-    com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED,
-    com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL -> when (dir) {
-        GamepadInputManager.StickDirection.DOWN -> "，"
-        GamepadInputManager.StickDirection.LEFT -> "⌫"
-        GamepadInputManager.StickDirection.RIGHT -> "、"
-        else -> ""
-    }
     com.gime.android.engine.GamepadInputMode.DEVANAGARI -> when (dir) {
         GamepadInputManager.StickDirection.UP -> "ं"
         GamepadInputManager.StickDirection.DOWN -> "␣"
@@ -1029,9 +942,6 @@ private fun stickCenterLabel(
         }
         com.gime.android.engine.GamepadInputMode.JAPANESE ->
             if (m.isConverting || m.hiraganaBuffer.isNotEmpty()) "✓" else "↵"
-        com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED,
-        com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL ->
-            if (m.pinyinCandidates.isNotEmpty()) "✓" else "↵"
         else -> "↵"
     }
     StickRole.RIGHT -> "✕"  // 取消
@@ -1056,8 +966,6 @@ private fun ltLabel(
         m.koreanSmartJamo -> "자모"     // 一時モード（空白/句読点で解除）
         else -> "ㅇ"                     // 通常: 単押しで ㅇ받침
     }
-    com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED,
-    com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL -> ""
     com.gime.android.engine.GamepadInputMode.DEVANAGARI ->
         // varga モード: LT + A = ऋ / LT + RB = nukta
         // 非 varga モード: D-pad を semivowel/sibilant 間で切替
@@ -1074,9 +982,7 @@ private fun lbLabel(
     if (isLB) return "●"
     return when (mode) {
         com.gime.android.engine.GamepadInputMode.JAPANESE -> "は〜"
-        com.gime.android.engine.GamepadInputMode.ENGLISH,
-        com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED -> "pqrs〜"
-        com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL -> "ㄗㄘㄙ〜"
+        com.gime.android.engine.GamepadInputMode.ENGLISH -> "pqrs〜"
         com.gime.android.engine.GamepadInputMode.KOREAN -> "ㅁ〜"
         com.gime.android.engine.GamepadInputMode.DEVANAGARI -> {
             val varga = com.gime.android.engine.resolveDevaVarga(m.devaLsDir)
@@ -1091,9 +997,7 @@ private fun rtLabel(
     m: GamepadInputManager,
 ): String = when (mode) {
     com.gime.android.engine.GamepadInputMode.JAPANESE -> "ん"
-    com.gime.android.engine.GamepadInputMode.ENGLISH,
-    com.gime.android.engine.GamepadInputMode.CHINESE_SIMPLIFIED,
-    com.gime.android.engine.GamepadInputMode.CHINESE_TRADITIONAL -> "0"
+    com.gime.android.engine.GamepadInputMode.ENGLISH -> "0"
     com.gime.android.engine.GamepadInputMode.KOREAN -> "ㅑㅕ"
     com.gime.android.engine.GamepadInputMode.DEVANAGARI ->
         if (m.btnLT) "ः" else "्⇆"  // halant / LS+RT でカーソル / LT併用で visarga
