@@ -209,6 +209,12 @@ nukta は借用音 dot、anusvara/chandrabindu は鼻音、visarga は Sanskrit 
 
 ### 物理入力の消費一覧
 
+> ★**2026-09-03 に実装と突き合わせて直した**（Higgins への移植の下調べ）。
+> 3 か所ずれていた —— `RS ←` は **o ではなく backspace**、`RS ↓` は **ṛ ではなく
+> 句読点サイクル**（ṛ は **LT + ✕**）、`RB` は **nukta ではなく `ओ`**（nukta は LT + RB）。
+> ★**設計メモは「決めたとき」の記録なので、実装が動いたあと更新されていなかった。**
+> 正典は `GamepadInputManager.swift` の `handleDevanagariInput()`。
+
 | 入力 | Devanagari モードでの意味 |
 |---|---|
 | LS 4 方向 + 中立 | varga 選択（5） |
@@ -218,12 +224,12 @@ nukta は借用音 dot、anusvara/chandrabindu は鼻音、visarga は Sanskrit 
 | D-pad 4 方向 | varga 内子音（stop 4）/ 非 varga 内子音 |
 | LB | 鼻音直送（varga モード時）/ 修飾子組合せ |
 | face buttons 4 | 主要短母音 4（a, i, u, e） |
-| RS ← | o |
-| RS ↓ | ṛ |
+| RS ← | **backspace**（合成中は composer の buffer を 1 字戻す） |
+| RS ↓ | **句読点サイクル**（空白 → `।` danda → `॥` double danda・多段タップ） |
 | RS → | 長母音 post-shift |
 | RS ↑ | anusvara ↔ chandrabindu cycle |
-| RB | nukta（直前子音に後置） |
-| RT | halant（明示的終端） |
+| RB | **`ओ` / `ो`**（単押し）／ **LT + RB = nukta** |
+| RT | halant（明示的終端）。★**何にも使われずに離されたときだけ**（RT+LS のカーソル移動 / RT+L3 の改行 / LT+RT の visarga に使われたら抑止） |
 | R3 | 予備（候補系 / モード切替） |
 
 **33 子音 + 11 母音 + 5 修飾子 = 49 の意味単位**をこの空間で取り切れる
