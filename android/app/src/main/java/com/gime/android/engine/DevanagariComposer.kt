@@ -89,6 +89,24 @@ val DEVA_MATRA_SHORT_TO_LONG: Map<Char, Char> =
     // 実際の処理は applyLongShift 側で個別対応。
     mapOf<Char, Char>()
 
+/// matra → candra 形（ॉ / ॅ）
+/// ★英語由来語に軒並み付く（डॉक्टर / कॉलेज / ऑफिस / कॉफ़ी）ので、日常語の綴りに要る。
+/// ★**長短の対と同じ「後から差し替える」形**にしてある —— candra は母音記号を
+///   **置換**する操作で、anusvara のように末尾へ**足す**のではない。
+val DEVA_MATRA_TO_CANDRA: Map<Char, Char> = mapOf(
+    'ा' to 'ॉ',
+    'ो' to 'ॉ',
+    'े' to 'ॅ',
+)
+
+/// 独立母音 → candra 形（ऑ / ऍ）。★matra 側と対になっている（ा↔आ / ो↔ओ / े↔ए）。
+val DEVA_VOWEL_TO_CANDRA: Map<Char, Char> = mapOf(
+    'अ' to 'ऑ',
+    'आ' to 'ऑ',
+    'ओ' to 'ऑ',
+    'ए' to 'ऍ',
+)
+
 /// 独立母音 or matra が長形式か判定
 val DEVA_LONG_FORMS: Set<Char> = setOf(
     'आ', 'ई', 'ऊ', 'ॠ', 'ऐ', 'औ',  // 独立長母音
@@ -230,6 +248,37 @@ class DevanagariComposer {
         DEVA_VOWEL_SHORT_TO_LONG[last]?.let { longVowel ->
             buffer = buffer.dropLast(1) + longVowel
             return ComposerOutput(longVowel.toString(), replaceCount = 1)
+        }
+        return null
+    }
+
+    /// candra（ॉ / ॅ）を適用する。★long-shift と同じ「後から差し替える」形。
+    /// - inherent schwa 状態（CONSONANT_OPEN）: ॉ を追加して "Cŏ" に（डॉक्टर の ड）。
+    /// - matra: 対応する candra 形に置換（ा/ो → ॉ、े → ॅ）。
+    /// - 独立母音: 対応する candra 形に置換（अ/आ/ओ → ऑ、ए → ऍ）。
+    /// - 既に candra 形 or 対象外: no-op で null。
+    ///
+    /// ★**anusvara の巡回には混ぜない。** あちらは cluster 末尾へ**足す**操作で
+    ///   「もう一度押すと外れる」が成り立つが、candra は**置換**なので戻り先が無い。
+    ///   置き場所は **LT + RS↑**（RS↑ の「行の上に付ける印」を保ちつつ LT の修飾層に揃う）。
+    fun applyCandra(): ComposerOutput? {
+        if (buffer.isEmpty()) return null
+
+        // inherent schwa 状態で candra → ॉ matra を追加（डॉक्टर / कॉलेज）
+        if (state == DevaState.CONSONANT_OPEN) {
+            buffer += 'ॉ'
+            state = DevaState.MATRA_CLOSED
+            return ComposerOutput("ॉ", replaceCount = 0)
+        }
+
+        val last = buffer.last()
+        DEVA_MATRA_TO_CANDRA[last]?.let { candra ->
+            buffer = buffer.dropLast(1) + candra
+            return ComposerOutput(candra.toString(), replaceCount = 1)
+        }
+        DEVA_VOWEL_TO_CANDRA[last]?.let { candra ->
+            buffer = buffer.dropLast(1) + candra
+            return ComposerOutput(candra.toString(), replaceCount = 1)
         }
         return null
     }

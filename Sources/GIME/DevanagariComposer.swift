@@ -51,6 +51,24 @@ let devaMatraShortToLong: [Character: Character] = [
     "ो": "ौ",
 ]
 
+/// matra → candra 形（ॉ / ॅ）
+/// ★英語由来語に軒並み付く（डॉक्टर / कॉलेज / ऑफिस / कॉफ़ी）ので、日常語の綴りに要る。
+/// ★**長短の対（devaMatraShortToLong）と同じ「後から差し替える」形**にしてある ——
+///   candra は母音記号を**置換**する操作で、anusvara のように末尾へ**足す**のではない。
+let devaMatraToCandra: [Character: Character] = [
+    "ा": "ॉ",
+    "ो": "ॉ",
+    "े": "ॅ",
+]
+
+/// 独立母音 → candra 形（ऑ / ऍ）。★matra 側と対になっている（ा↔आ / ो↔ओ / े↔ए）。
+let devaVowelToCandra: [Character: Character] = [
+    "अ": "ऑ",
+    "आ": "ऑ",
+    "ओ": "ऑ",
+    "ए": "ऍ",
+]
+
 /// Devanagari 合成エンジン
 struct DevanagariComposer {
     /// 合成結果
@@ -186,6 +204,43 @@ struct DevanagariComposer {
             buffer.removeLast()
             buffer.append(longVowel)
             return Output(text: String(longVowel), replaceCount: 1)
+        }
+        return nil
+    }
+
+    /// candra（ॉ / ॅ）を適用する。★long-shift と同じ「後から差し替える」形。
+    ///
+    /// - inherent schwa 状態（consonantOpen）: ॉ を追加して "Cŏ" に（डॉक्टर の ड）。
+    /// - matra: 対応する candra 形に置換（ा/ो → ॉ、े → ॅ）。
+    /// - 独立母音: 対応する candra 形に置換（अ/आ/ओ → ऑ、ए → ऍ）。
+    /// - 既に candra 形 or 対象外: no-op で nil。
+    ///
+    /// ★**anusvara の巡回には混ぜない。** あちらは cluster 末尾へ**足す**操作で、
+    ///   「もう一度押すと外れる」が成り立つが、candra は**置換**なので戻り先が無い。
+    ///   置き場所は **LT + RS↑** ―― RS↑ の「行の上に付ける印」という意味を保ちつつ、
+    ///   LT の修飾層（LT+RB = nukta / LT+RT = visarga）に揃う。
+    mutating func applyCandra() -> Output? {
+        guard !buffer.isEmpty else { return nil }
+
+        // inherent schwa 状態で candra → ॉ matra を追加（डॉक्टर / कॉलेज）
+        if state == .consonantOpen {
+            let candraO: Character = "ॉ"
+            buffer.append(candraO)
+            state = .matraClosed
+            return Output(text: String(candraO), replaceCount: 0)
+        }
+
+        guard let last = buffer.last else { return nil }
+
+        if let candra = devaMatraToCandra[last] {
+            buffer.removeLast()
+            buffer.append(candra)
+            return Output(text: String(candra), replaceCount: 1)
+        }
+        if let candra = devaVowelToCandra[last] {
+            buffer.removeLast()
+            buffer.append(candra)
+            return Output(text: String(candra), replaceCount: 1)
         }
         return nil
     }

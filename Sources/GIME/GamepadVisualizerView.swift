@@ -182,7 +182,8 @@ struct GamepadVisualizerView: View {
         case .korean:
             // 자모 모드: ↑ = 直前子音 평→격→경 サイクル
             return gamepadInput.isKoreanJamoMode ? "ㄱㅋㄲ" : "ㅋㅌ"
-        case .devanagari: return "ंँ"
+        // ★LT 併用で candra（ॉ ॅ）。単独は anusvara ↔ chandrabindu の巡回。
+        case .devanagari: return isLTPressed ? "ॉॅ" : "ंँ"
         }
     }
 

@@ -1418,9 +1418,18 @@ final class GamepadInputManager {
             }
         }
 
-        // === RS ↑: anusvara ↔ chandrabindu トグル ===
+        // === RS ↑: anusvara ↔ chandrabindu トグル / LT 同時押しで candra（ॉ ॅ）===
+        // ★同じ RS↑ に置いたのは、ं ँ ॉ ॅ が**どれも行の上に付く印**だから
+        //   （名前でも揃う ―― चन्द्रबिन्दु = candra + bindu）。
+        // ★ただし**同じ巡回には混ぜない**: anusvara は末尾へ足す操作で「もう一度で外れる」が
+        //   成り立つが、candra は母音記号の**置換**なので戻り先が無い。
+        //   LT の修飾層（LT+RB = nukta / LT+RT = visarga）に揃えて 1 打鍵で出す。
         if rStickUp && !prevRStickUp {
-            if let out = devanagariComposer.toggleAnusvara() {
+            if ltNow {
+                if let out = devanagariComposer.applyCandra() {
+                    onDirectInsert?(out.text, out.replaceCount)
+                }
+            } else if let out = devanagariComposer.toggleAnusvara() {
                 onDirectInsert?(out.text, out.replaceCount)
             }
         }
