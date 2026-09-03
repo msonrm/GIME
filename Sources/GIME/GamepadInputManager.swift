@@ -922,6 +922,13 @@ final class GamepadInputManager {
 
             let rowChanged = row != prevRow
             let vowelChanged = vowel != prevVowel
+            // ★★**RT が「あとから」着いたときも作り直す**（2026-09-04・実機の指摘）。
+            //   ★RT は母音の**層の切替**（ㅡ→ㅣ / ㅓ→ㅔ / ㅗ→ㅛ …）なので、面ボタンを
+            //     押したままなら**同じ音節を差し替える**のが筋。
+            //   ★★これが無いと **RB が先・RT が後**のときに `으` が出たまま作り直されず、
+            //     RT を離したところで「単押し」と見なされて **ㅣ が足され `의`** になる。
+            //   ★**離したときは作り直さない**（指を離す順は自由であってほしい）。
+            let rtPressed = rtNow && !prevRT
 
             if prevVowel == nil {
                 let output = koreanComposer.inputSyllable(onset: onsetIdx, nucleus: nucleusIdx)
@@ -931,11 +938,15 @@ final class GamepadInputManager {
                 eagerTime = now
                 allReleasedSinceSyllable = false
                 if rtNow { rtUsed = true }
-            } else if rowChanged || vowelChanged {
+            } else if rowChanged || vowelChanged || rtPressed {
                 let consonantReleased = rowChanged && consonantCount < prevConsonantCount
                 if !consonantReleased {
                     let output = koreanComposer.inputSyllable(onset: onsetIdx, nucleus: nucleusIdx)
-                    if eagerChar != nil && (now - eagerTime) < chordWindow {
+                    // ★RT が着いただけなら**時間窓を見ない** —— 母音のボタンは離れて
+                    //   いないので、間が空いても同じ音節の差し替えであることは確か。
+                    if rtPressed && !rowChanged && !vowelChanged {
+                        onDirectInsert?(output.text, eagerCharLen)
+                    } else if eagerChar != nil && (now - eagerTime) < chordWindow {
                         onDirectInsert?(output.text, eagerCharLen)
                     } else {
                         onDirectInsert?(output.text, output.replaceCount)
@@ -997,7 +1008,15 @@ final class GamepadInputManager {
         // LT 処理は handleKoreanLT() に集約済み（ㅇ받침は release edge で発火）。
 
         // === RT: 単押しリリースで複合母音（ㅣ付加）、同時押しは y系（上で処理済み） ===
+        // ★★**RT と母音が両方押されていれば「使った」**（2026-09-04）。
+        //   ★これが無いと、押下エッジのリセットが**母音側で立てた印を後ろから
+        //     打ち消す** —— 離したときに「単押しだった」と見なされ ㅣ が余計に足される。
+        //     実測（Higgins）: `여`（RT + □ = ㅕ）が **`예`**（ㅕ + ㅣ）になっていた。
+        //   ★★**Android には既に入っていた**（`if (rtNow && vowelNow) rtUsed = true`）——
+        //     iOS と web と Higgins に伝わっていなかった。**順序に依存しない**ぶん
+        //     「リセットを前に出す」より確か。
         if rtNow && !prevRT { rtUsed = false }
+        if rtNow && vowelNow { rtUsed = true }
         if !rtNow && prevRT {
             if !rtUsed && !ltNow {
                 handleKoreanVowelAddI()
