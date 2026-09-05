@@ -52,6 +52,23 @@ Start ボタンでモードを切り替える。
 
 英語・韓国語モードでは常にカーソル移動。
 
+**★合成中の LS ←→ は GIME とへちま系で流儀が違う。** 上の表は **GIME（iOS / Android）** のもので
+**←→ = 文節伸縮**、注目文節を行き来する操作は無い。一方 **へちま系**（web の `GamepadEngine` と、
+その移植である Higgins）は **←→ = 文節移動 / RT+←→ = 文節伸縮**（下の「GamepadEngine 単体バンドル」節）。
+
+★**割り当ての好みではなく変換エンジンの差**である:
+
+| | GIME | へちま系（GamepadEngine / Higgins） |
+|---|---|---|
+| 変換エンジン | AzooKey（KeyLogicKit） | Mozc（hechima） |
+| 注目文節 | **無い**。先頭が常に注目で、部分確定して次へ進む（`InputManager.prepareNextSegment`） | **有る**。`focus` index と文節配列を持つ（`web/src/hechima/session.ts`） |
+| 文節の API | `editSegment(count:)` だけ ―― 境界カーソルを動かす（azooKey-Desktop の `SegmentsManager.editSegment` と同等） | `resize(segmentIndex, offset)` + focus 移動 |
+
+つまり GIME に「文節移動」を足すには、**KeyLogicKit に注目文節の概念を新設するところから要る**
+（AzooKey の `ComposingText` は「カーソル位置までを変換対象にする」モデルで、複数文節を保持して
+行き来する構造をその上に載せることになる）。**揃えるとしたら iOS の変換を Mozc に載せ替えるときで、
+それまでは違うままにしておく**（2026-09-05 の判断）。
+
 ### テキスト操作モード
 
 Back ボタン（idle 時）でトグル。文単位のナビゲーション・選択・並べ替えを行う。
@@ -430,7 +447,8 @@ LT ラベルが자모 モードの状態に連動:
 試打サイトの日本語ロジックを framework 非依存の UMD に切り出したもの。GamepadOp を `insertKana` /
 `feed` に配線する（組み込みは [`gamepad-engine-embedding.md`](gamepad-engine-embedding.md)）。試打サイト
 にない左スティックのナビゲーション（↓=変換/次候補・未入力時カーソル下・↑=前候補・←→=文節移動・
-RT+←→=文節伸縮）と Start=確定アンドゥを追加している。**v1.5.0 で非合成（idle）時の RT+LS 上下左右 =
+RT+←→=文節伸縮。★**GIME とはここが違う** ―― 理由は「左アナログスティック」節）と
+Start=確定アンドゥを追加している。**v1.5.0 で非合成（idle）時の RT+LS 上下左右 =
 範囲選択（Shift+矢印を emit、ホストが extend 解釈）**。範囲選択中の削除（BS で選択削除）と再変換
 （Start で選択を再変換、選択が無い Start は従来どおり確定アンドゥ）は**ホスト側の責務**
 （へちま言語ラボは `site/src/app.ts` の `applyFlickHostKey` / gamepad `onOp` で対応。エンジンは
