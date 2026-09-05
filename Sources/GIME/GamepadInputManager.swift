@@ -145,6 +145,18 @@ final class GamepadInputManager {
 
     // R🕹↓ 多段タップ（全言語共通）
     private var rStickDownLastTime: TimeInterval = 0
+    /// RT 単押しの巡回（ん → を → んを → ん）。
+    ///
+    /// ★**仕様は `docs/gamepad-mapping.md` に前からあった**（「RT 連打」の行）。
+    ///   実装だけが追いついていなかった —— 日本語の「ん」は連続せず、「んを」はあるが
+    ///   「をん」は無い、という言語側の事実に対応した巡回。
+    /// 前の出力を**差し替える**形なので、RS↓ の句読点サイクルと同じ多段タップ窓で
+    /// 「続けて押したか」を判定する。★別入力（かな・拗音・濁点・スティック等）が
+    /// 入ったら巡回は切れる —— 窓だけだと直前に打った別の字を差し替えてしまう。
+    ///   切るのは `executeAction()` の入口 1 点（+ 句読点の onDirectInsert 直呼び）。
+    private let rtCycleChars = ["ん", "を", "んを"]
+    private var rtCycleIndex: Int = 0
+    private var rtCycleLastTime: TimeInterval = 0
     private var rStickDownTapCount: Int = 0
 
     private var prevRStickUp = false
@@ -178,7 +190,6 @@ final class GamepadInputManager {
     private(set) var englishCapsLock = false
     private(set) var englishSmartCaps = false
     private var englishLTHolding = false
-    private var lastLTReleaseTime: TimeInterval = 0
     private var ltPressTime: TimeInterval = 0
     private let longPressThreshold: TimeInterval = 0.500
 
@@ -473,6 +484,8 @@ final class GamepadInputManager {
 
         // R🕹↓ 句読点・空白（全言語共通の多段タップ）
         if rStickDown && !prevRStickDown {
+            // ★ここは onDirectInsert 直呼びで executeAction を通らないので個別に切る。
+            rtCycleLastTime = 0
             // 言語別の前処理
             if currentMode == .korean {
                 commitKoreanComposer()
@@ -498,7 +511,8 @@ final class GamepadInputManager {
                     onDirectInsert?("、", 0)
                 case 1: onDirectInsert?("。", 1)
                 default:
-                    onDirectInsert?(" ", 1)
+                    // ★全角空白（Higgins に合わせた。日本語の文中に置くのは全角）
+                    onDirectInsert?("\u{3000}", 1)
                     rStickDownTapCount = 0
                     rStickDownLastTime = 0
                 }
@@ -513,11 +527,15 @@ final class GamepadInputManager {
                     rStickDownLastTime = 0
                 }
             case .korean:
-                // 空白 → ピリオド(.)
+                // 空白 → . → ? → , → 『 → 』（Higgins に合わせた）
                 switch rStickDownTapCount {
                 case 0: onDirectInsert?(" ", 0)
+                case 1: onDirectInsert?(".", 1)
+                case 2: onDirectInsert?("?", 1)
+                case 3: onDirectInsert?(",", 1)
+                case 4: onDirectInsert?("『", 1)
                 default:
-                    onDirectInsert?(".", 1)
+                    onDirectInsert?("』", 1)
                     rStickDownTapCount = 0
                     rStickDownLastTime = 0
                 }
@@ -529,6 +547,7 @@ final class GamepadInputManager {
                     devanagariComposer.commit()
                     onDirectInsert?(" ", 0)
                 case 1: onDirectInsert?("।", 1)
+                case 2: onDirectInsert?(",", 1)
                 default:
                     onDirectInsert?("॥", 1)
                     rStickDownTapCount = 0
@@ -651,6 +670,8 @@ final class GamepadInputManager {
             englishSmartCaps = false
             rStickDownTapCount = 0
             rStickDownLastTime = 0
+            rtCycleIndex = 0
+            rtCycleLastTime = 0
             commitKoreanComposer()
             // モード切替で 자모 모드も全リセット（Lock も解除）
             koreanJamoLock = false
@@ -736,11 +757,16 @@ final class GamepadInputManager {
             rtDuringLT = false
         }
 
-        // RT 単押し → ん
+        // RT 単押し → ん。★続けて押すと を → んを → ん と回る。
         if rtNow && !prevRT { rtUsed = false }
         if !rtNow && prevRT {
             if !rtUsed && !ltNow {
-                executeAction(.kana("ん"))
+                let continuing = (now - rtCycleLastTime) < doubleTapWindow
+                // 続けて押したときだけ、前回の出力を消してから次を出す。
+                let replaceCount = continuing ? rtCycleChars[rtCycleIndex].count : 0
+                rtCycleIndex = continuing ? (rtCycleIndex + 1) % rtCycleChars.count : 0
+                executeAction(.kana(rtCycleChars[rtCycleIndex], replaceCount: replaceCount))
+                rtCycleLastTime = now
             }
             rtUsed = false
         }
@@ -806,21 +832,29 @@ final class GamepadInputManager {
             englishLTHolding = false  // 1回だけ発火
         }
 
-        // LT リリース: 押下時間で判定（長押しは押下中に処理済み）
+        // LT リリース: 短押しは巡回（長押しは押下中に処理済み）
         if !ltNow && prevLT {
             if englishLTHolding {
-                // 長押し閾値未到達 → 短押し判定
-                if (now - lastLTReleaseTime) < doubleTapWindow {
-                    // 短押し2度押し → スマート Caps Lock
-                    englishSmartCaps = true
+                // ★**単押しは巡回する**（Higgins に合わせた。スマホのシフトキーと同じ回り方）:
+                //
+                //     無し ──▶ Shift（次の 1 字だけ）──▶ Caps（大文字が続く）──▶ 無し
+                //
+                // ★**どの状態からも単押し 1 回で抜けられる** —— CAPS（長押しで入る固定）中も
+                //   単押しで解除に倒れる。
+                // ★**時間窓を持たない**。旧実装は「400ms 以内の 2 度押し」で Caps に入って
+                //   いたが、打鍵の速さに依存するうえ、L3 の層巡回や RT の巡回と規律が揃わない。
+                if englishCapsLock || englishSmartCaps {
+                    englishCapsLock = false
+                    englishSmartCaps = false
                     englishShiftNext = false
+                } else if englishShiftNext {
+                    englishShiftNext = false
+                    englishSmartCaps = true
                 } else {
-                    // 短押し → 次の1文字だけ大文字
                     englishShiftNext = true
                 }
             }
             englishLTHolding = false
-            lastLTReleaseTime = now
         }
 
         // RT: 数字「0」入力
@@ -1490,6 +1524,10 @@ final class GamepadInputManager {
     // MARK: - アクション実行
 
     private func executeAction(_ action: GamepadAction) {
+        // ★RT の巡回は「別入力が入ったら切れる」（`docs/gamepad-mapping.md` の仕様）。
+        //   ここで一括して落とし、RT 自身の経路だけが呼び出し後に now を入れ直す。
+        //   かな・拗音・濁点・長音・スティック操作が全部この 1 点を通るので漏れない。
+        rtCycleLastTime = 0
         switch action {
         case .kana(let char, let replaceCount):
             // selecting/previewing 中に新しい文字を打ったら、現在の候補を confirmedPrefix に

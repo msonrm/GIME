@@ -199,6 +199,24 @@ OFF ──L3──▶ semivowel (य र ल व) ──L3──▶ sibilant (�
 - 正典は `handleDevanagariInput()` の **2 か所**（子音 emission と 鼻音 emission）。
   ★片方だけだと「D-pad なら消えるが LB では残る」という一番説明しにくい形になる
 
+### ★★移植の罠 —— 「末尾の印」を言語の「文字」で取ってはいけない
+
+matra / anusvara / virama / nukta は Unicode 上**前の字にくっつく印**なので、
+**末尾の印だけを見る・落とす操作**（長音化・anusvara 巡回・candra・backspace）は
+**必ず Unicode スカラー単位**で書く。言語の「末尾 1 文字」を使うと言語ごとに割れる:
+
+| 言語 | 末尾 1 文字が返すもの | `कि` の末尾 | 結果 |
+|---|---|---|---|
+| **Swift** | 書記素クラスタ（`Character`） | **`कि` まるごと** | 印が取れず**黙って no-op**。落とすと**基字ごと**消える |
+| **Kotlin** | UTF-16 コード単位（`Char`） | `ि` | 動く |
+
+★**2026-09-05 に実機で発覚**（`कि` → RS→ が `की` にならない / `ं` の次が `ँ` にならない）。
+**同じソースなのに Android では動き、iOS だけが壊れていた**。
+★**症状が「何も起きない」なので気づきにくい** —— 素の子音への**追加**は末尾を見ないので
+動いてしまい、**置換だけが黙って死ぬ**（candra は出るのに長音化が効かない、が典型）。
+Swift 側は `lastScalarChar` / `dropLastScalar()` に集約して直した。
+★**C へ移植するときも同じ罠**（UTF-8 のバイト列を後ろから 1 バイト見ても印にならない）。
+
 ### 母音レイヤー
 
 短母音 6 個（a, i, u, ṛ, e, o）+ 長母音 6 個（ā, ī, ū, ṝ, ai, au）+ 独立形
@@ -293,7 +311,7 @@ nukta は借用音 dot、anusvara/chandrabindu は鼻音、visarga は Sanskrit 
 | LB | 鼻音直送（varga モード時）/ 修飾子組合せ |
 | face buttons 4 | 主要短母音 4（a, i, u, e） |
 | RS ← | **backspace**（合成中は composer の buffer を 1 字戻す） |
-| RS ↓ | **句読点サイクル**（空白 → `।` danda → `॥` double danda・多段タップ） |
+| RS ↓ | **句読点サイクル**（空白 → `।` danda → `,` → `॥` double danda・多段タップ）。★`,` は 2026-09-05 に Higgins へ合わせて追加（iOS のみ・Android 未追随） |
 | RS → | 長母音 post-shift |
 | RS ↑ | anusvara ↔ chandrabindu cycle ／ **LT + RS ↑ = candra（`ॉ` `ॅ`）** |
 | RB | **`ओ` / `ो`**（単押し）／ **LT + RB = nukta** |

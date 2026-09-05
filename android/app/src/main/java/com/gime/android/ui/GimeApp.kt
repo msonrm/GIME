@@ -971,9 +971,10 @@ private fun ltLabel(
         else -> "ㅇ"                     // 通常: 単押しで ㅇ받침
     }
     com.gime.android.engine.GamepadInputMode.DEVANAGARI ->
-        // LT の意味は「土着でない音」で揃えてある（LT+A = ऋ / LT+RB = nukta /
+        // LT は「土着でない音にする」シフト（LT+A = ऋ / LT+RB = nukta /
         // LT+RT = visarga / LT+RS↑ = candra）。非 varga 層の選択には関与しない。
-        "ऋ़"
+        // ★単押しでは何も出ないので、出る字ではなく**役割**をラベルにする（Higgins と同じ）。
+        "Shift"
 }
 
 /// LB ラベル: 押下中は ●、そうでなければ別レイヤーの手がかりを表示

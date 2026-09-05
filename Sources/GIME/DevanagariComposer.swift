@@ -88,6 +88,33 @@ struct DevanagariComposer {
 
     var currentBuffer: String { buffer }
 
+    // MARK: - 末尾スカラーの操作
+
+    // ★★**末尾の「印」を Character 単位で見てはいけない。**
+    //   Swift の `Character` は**書記素クラスタ**なので、`"कि"` の末尾は `ि` ではなく
+    //   `कि`（क + ि）まるごとになり、末尾 1 文字を落とす操作は**基字ごと**消してしまう。
+    //   Devanagari の matra / anusvara / virama / nukta は Unicode 上「前の字にくっつく印」
+    //   なので、**末尾の印だけを見る・落とす操作は必ずスカラー単位**でやる。
+    //
+    // ★★同じソースでも **Kotlin は `String.last()` が UTF-16 コード単位を返すので印が取れる**。
+    //   だから **Android では動き、iOS だけが黙って no-op になっていた**
+    //   （2026-09-05 実機で発覚: `कि` → RS→ が `की` にならない / `ं` の次が `ँ` にならない）。
+    //   ★**症状が「何も起きない」なので気づきにくい** —— 素の子音への**追加**は末尾を見ないので
+    //   動いてしまい、**置換だけが黙って死んでいた**（candra が出るのに長音化が効かない、の正体）。
+
+    /// buffer の末尾 1 スカラーを `Character` として返す（クラスタではない）。
+    private var lastScalarChar: Character? {
+        buffer.unicodeScalars.last.map { Character($0) }
+    }
+
+    /// 末尾 1 スカラーだけを落とす。
+    private mutating func dropLastScalar() {
+        var scalars = buffer.unicodeScalars
+        guard !scalars.isEmpty else { return }
+        scalars.removeLast()
+        buffer = String(scalars)
+    }
+
     // MARK: - 入力 API
 
     /// 子音を入力する。
@@ -138,14 +165,14 @@ struct DevanagariComposer {
     /// anusvara ↔ chandrabindu をトグル。既に付いていればトグル、なければ anusvara 追加。
     /// cluster 末尾修飾なので、子音直後 / matra 後 / 独立母音後 のいずれでも可。
     mutating func toggleAnusvara() -> Output? {
-        guard let last = buffer.last else { return nil }
+        guard let last = lastScalarChar else { return nil }
         if last == DevanagariUnicode.anusvara {
-            buffer.removeLast()
+            dropLastScalar()
             buffer.append(DevanagariUnicode.chandrabindu)
             state = .modifierClosed
             return Output(text: String(DevanagariUnicode.chandrabindu), replaceCount: 1)
         } else if last == DevanagariUnicode.chandrabindu {
-            buffer.removeLast()
+            dropLastScalar()
             // toggle off: chandrabindu 除去 → 前の状態（matra/vowel/consonant）に戻る
             state = recomputeState()
             return Output(text: "", replaceCount: 1)
@@ -191,17 +218,17 @@ struct DevanagariComposer {
             return Output(text: String(longAaMatra), replaceCount: 0)
         }
 
-        guard let last = buffer.last else { return nil }
+        guard let last = lastScalarChar else { return nil }
 
         // 短 matra → 長 matra
         if let longMatra = devaMatraShortToLong[last] {
-            buffer.removeLast()
+            dropLastScalar()
             buffer.append(longMatra)
             return Output(text: String(longMatra), replaceCount: 1)
         }
         // 短独立母音 → 長独立母音
         if let longVowel = devaVowelShortToLong[last] {
-            buffer.removeLast()
+            dropLastScalar()
             buffer.append(longVowel)
             return Output(text: String(longVowel), replaceCount: 1)
         }
@@ -230,15 +257,15 @@ struct DevanagariComposer {
             return Output(text: String(candraO), replaceCount: 0)
         }
 
-        guard let last = buffer.last else { return nil }
+        guard let last = lastScalarChar else { return nil }
 
         if let candra = devaMatraToCandra[last] {
-            buffer.removeLast()
+            dropLastScalar()
             buffer.append(candra)
             return Output(text: String(candra), replaceCount: 1)
         }
         if let candra = devaVowelToCandra[last] {
-            buffer.removeLast()
+            dropLastScalar()
             buffer.append(candra)
             return Output(text: String(candra), replaceCount: 1)
         }
@@ -248,8 +275,8 @@ struct DevanagariComposer {
     /// 1 文字 backspace。state を再計算。
     mutating func backspace() -> Output? {
         guard !buffer.isEmpty else { return nil }
-        buffer.removeLast()
-        lastConsonantHasNukta = buffer.last == DevanagariUnicode.nukta
+        dropLastScalar()
+        lastConsonantHasNukta = lastScalarChar == DevanagariUnicode.nukta
         state = recomputeState()
         return Output(text: "", replaceCount: 1)
     }
@@ -266,7 +293,7 @@ struct DevanagariComposer {
 
     /// buffer の末尾から state を再計算する。
     private func recomputeState() -> DevaState {
-        guard let last = buffer.last else { return .empty }
+        guard let last = lastScalarChar else { return .empty }
         if last == DevanagariUnicode.virama { return .halantClosed }
         if last == DevanagariUnicode.anusvara ||
             last == DevanagariUnicode.chandrabindu ||

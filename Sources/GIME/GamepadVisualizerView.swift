@@ -44,7 +44,9 @@ struct GamepadVisualizerView: View {
             columnSpacing: 24, outerPadding: 16,
             dpadFontSize: 13, faceFontSize: 16,
             shoulderFontSize: 16, shoulderNameFontSize: 10,
-            stickFontSize: 9
+            // ★スティックのラベルは実機（iPad）で読めなかったので 9 → 13.5（1.5 倍）。
+            //   dpad 13 / face 16 の間に収まるので浮かない。compact（iPhone）は据え置き。
+            stickFontSize: 13.5
         )
         static let compact = VizMetrics(
             dpadCell: 38, faceCell: 38,
@@ -101,13 +103,42 @@ struct GamepadVisualizerView: View {
         gamepadInput.pressedButtons.contains("RT")
     }
 
+    /// 英語がいずれかのシフト状態にあるか（次の 1 字 / 継続 / 固定）。
+    private var isEnglishShifted: Bool {
+        gamepadInput.englishCapsLock
+            || gamepadInput.englishSmartCaps
+            || gamepadInput.englishShiftNext
+    }
+
+    /// 英語シフト状態を表す SF Symbol。無シフト or 他モードなら nil。
+    ///
+    /// ★段の見出しの**左（外側）**に付ける。Higgins は `⇧` `△` `▲` の文字で出しているが、
+    ///   iOS には専用のグリフがあるのでそちらを使う（意味は 1 対 1 で対応）。
+    /// - `shift`（線） = 次の 1 字だけ大文字
+    /// - `shift.fill`（塗り） = 大文字が続く（空白・記号で解ける）
+    /// - `capslock.fill` = 大文字固定（LT 長押し）
+    private var englishShiftSymbol: String? {
+        guard mode == .english else { return nil }
+        if gamepadInput.englishCapsLock { return "capslock.fill" }
+        if gamepadInput.englishSmartCaps { return "shift.fill" }
+        if gamepadInput.englishShiftNext { return "shift" }
+        return nil
+    }
+
+    private var englishShiftLabel: String {
+        if gamepadInput.englishCapsLock { return "大文字固定" }
+        if gamepadInput.englishSmartCaps { return "大文字が続く" }
+        if gamepadInput.englishShiftNext { return "次の 1 字だけ大文字" }
+        return ""
+    }
+
     /// 英語シフト状態を反映したフェイスボタン文字
     private var faceChars: [String] {
         switch mode {
         case .japanese: return kanaTable[gamepadInput.activeRow]
         case .english:
             let row = englishTable[gamepadInput.activeRow]
-            if gamepadInput.englishCapsLock || gamepadInput.englishSmartCaps || gamepadInput.englishShiftNext {
+            if isEnglishShifted {
                 return row.map { $0.uppercased() }
             }
             return row
@@ -117,6 +148,34 @@ struct GamepadVisualizerView: View {
             // RB の表示は rbLabel で個別に上書きするため、ここでは a 位置に अ を置く。
             let aChar = isLTPressed ? "ऋ" : "उ"  // A (u-slot) は LT で ऋ
             return ["अ", "ए", "अ", "इ", aChar]
+        }
+    }
+
+    /// いま左手で選んでいる段の見出し。**折りたたみ時も展開時も出す。**
+    ///
+    /// ★Higgins / zenmai の「右下の箱」と同じ役割。ビジュアライザを最小化すると
+    ///   D-pad の表示が消えるので、これが唯一の手がかりになる。
+    /// - 日本語: あ段の字（あ か さ た な は ま や ら わ）
+    /// - 英語: その行のフェイスボタン 4 つ（abc / pqrs / @#-_）
+    /// - 韓国語: その行の子音（ㅇ ㄱ ㄴ …）
+    /// - Devanagari: 現 LS latch の組の頭の字（प क च ट त）
+    private var rowIndicator: String {
+        let row = gamepadInput.activeRow
+        switch mode {
+        case .japanese:
+            guard row < kanaTable.count else { return "" }
+            return kanaTable[row].first ?? ""
+        case .english:
+            guard row < englishTable.count else { return "" }
+            let chars = englishTable[row].dropFirst().filter { !$0.isEmpty }.joined()
+            // ★シフト中は見出しも大文字にする —— **打つ前に大文字かどうかが分かる**。
+            return isEnglishShifted ? chars.uppercased() : chars
+        case .korean:
+            guard row < koreanRowNames.count else { return "" }
+            return koreanRowNames[row]
+        case .devanagari:
+            let varga = resolveDevaVarga(gamepadInput.devaLsDir)
+            return String(devaVargaConsonants[varga.rawValue][0])
         }
     }
 
@@ -147,7 +206,10 @@ struct GamepadVisualizerView: View {
             if gamepadInput.koreanSmartJamo { return "자모" }   // 一時モード（空白/句読点で解除）
             return "ㅇ"                                          // 通常: 単押しで ㅇ받침
         case .japanese: return "拗音"
-        case .devanagari: return ""  // LT 単押しは emit 無し（ऋ / nukta / visarga / candra の修飾子）
+        // ★LT は「土着でない音にする」シフト（LT+RB = nukta / LT+RS↑ = candra /
+        //   LT+A = ऋ / LT+RT = visarga）。単押しでは何も出ないので、出る字ではなく
+        //   **役割**をラベルにする（Higgins と同じ "Shift"）。
+        case .devanagari: return "Shift"
         }
     }
 
@@ -195,8 +257,8 @@ struct GamepadVisualizerView: View {
         switch mode {
         case .japanese: return "、。␣"
         case .english: return "␣.,"
-        case .korean: return "␣."
-        case .devanagari: return "␣।"
+        case .korean: return "␣.?…"   // ␣ . ? , 『 』の 6 段
+        case .devanagari: return "␣।,॥"
         }
     }
 
@@ -228,6 +290,27 @@ struct GamepadVisualizerView: View {
 
                 Spacer()
 
+                // 英語のシフト状態。★見出しの左（外側）に付ける。
+                if let symbol = englishShiftSymbol {
+                    Image(systemName: symbol)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(modeBadgeColor)
+                        .accessibilityLabel(englishShiftLabel)
+                }
+
+                // いま選んでいる段。★最小化しても残るので、畳んだままでも打てる。
+                //   色と形は言語バッジと揃える。
+                if !rowIndicator.isEmpty {
+                    Text(rowIndicator)
+                        .font(.system(size: 14, weight: .semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                        .background(modeBadgeColor)
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
+                        .accessibilityLabel("選択中の段: \(rowIndicator)")
+                }
+
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isCollapsed.toggle()
@@ -252,7 +335,10 @@ struct GamepadVisualizerView: View {
 
             if !isCollapsed {
                 // Android 版と同じ 2 段構造:
-                //  上段: [LT][LB] ─── [RB][RT]
+                //  上段: [LB][LT] ─── [RT][RB]
+                //  ★トリガー（LT/RT）を内側に置く。実機ではショルダーの下にトリガーが
+                //    あり、2 次元に潰すときは「中央に近いほど押しやすい」に合わせた方が
+                //    指の感覚と揃う（Higgins / zenmai も同じ並び）。
                 //  中段: [LS] [D-pad] [Face] [RS]
                 // 中央プレビュー（旧）と下段テキストヒント（旧）は廃止。
                 // LS/RS は内部 3×3 グリッドに方向別ラベルを直接表示する。
@@ -261,27 +347,27 @@ struct GamepadVisualizerView: View {
                     HStack(alignment: .center) {
                         HStack(spacing: 4) {
                             shoulderButton(
-                                char: ltLabel,
-                                name: "LT",
-                                pressed: gamepadInput.pressedButtons.contains("LT")
-                            )
-                            shoulderButton(
                                 char: lbLabel,
                                 name: "LB",
                                 pressed: gamepadInput.pressedButtons.contains("LB")
+                            )
+                            shoulderButton(
+                                char: ltLabel,
+                                name: "LT",
+                                pressed: gamepadInput.pressedButtons.contains("LT")
                             )
                         }
                         Spacer()
                         HStack(spacing: 4) {
                             shoulderButton(
-                                char: rbLabel,
-                                name: "RB",
-                                pressed: gamepadInput.pressedButtons.contains("RB")
-                            )
-                            shoulderButton(
                                 char: rtLabel,
                                 name: "RT",
                                 pressed: gamepadInput.pressedButtons.contains("RT")
+                            )
+                            shoulderButton(
+                                char: rbLabel,
+                                name: "RB",
+                                pressed: gamepadInput.pressedButtons.contains("RB")
                             )
                         }
                     }
