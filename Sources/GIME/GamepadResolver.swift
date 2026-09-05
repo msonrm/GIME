@@ -270,9 +270,9 @@ let devaVargaConsonants: [[Character]] = [
     ["प", "फ", "ब", "भ", "म"],  // पवर्ग
 ]
 
-/// 非 varga 子音サブレイヤー（L3 = LS クリックで突入）
-/// LT 離し: semivowel 層（य र ल व）、LT 押し: sibilant + h 層（श ष स ह）。
-/// いずれも D-pad ↑→↓← に割り当て。
+/// 非 varga 子音サブレイヤー（L3 = LS クリックで巡回: off → semivowel → sibilant → off）
+/// semivowel 層（य र ल व）／ sibilant + h 層（श ष स ह）。
+/// いずれも D-pad ↑→↓← に割り当て。★層の選択に LT は関与しない。
 let devaNonVargaSemivowel: [Character] = ["य", "र", "ल", "व"]
 let devaNonVargaSibilant: [Character] = ["श", "ष", "स", "ह"]
 
@@ -348,8 +348,8 @@ func devaVargaDisplayChars(_ varga: DevaVarga) -> [String] {
 }
 
 /// 非 varga サブレイヤー表示用: LT OFF (semivowel) / LT ON (sibilant)
-func devaNonVargaDisplayChars(ltPressed: Bool) -> [String] {
-    let row = ltPressed ? devaNonVargaSibilant : devaNonVargaSemivowel
+func devaNonVargaDisplayChars(sibilant: Bool) -> [String] {
+    let row = sibilant ? devaNonVargaSibilant : devaNonVargaSemivowel
     // [center(unused), left=row[3], up=row[0], right=row[1], down=row[2]]
     return ["", String(row[3]), String(row[0]), String(row[1]), String(row[2])]
 }

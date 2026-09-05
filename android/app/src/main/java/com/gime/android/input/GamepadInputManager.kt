@@ -46,10 +46,24 @@ class GamepadInputManager {
         private set
 
     // Devanagari モード状態
-    /// 非 varga サブレイヤー中か（L3 = LS クリックでトグル、1 子音で auto-off）。
-    /// ON の間、D-pad は semivowel (य र ल व) / LT 押下時は sibilant (श ष स ह) を返す。
-    var devaNonVargaActive: Boolean by mutableStateOf(false)
+    /// 非 varga サブレイヤーの層。L3 (LS クリック) で巡回し、1 子音 emit で OFF に戻る。
+    ///
+    ///     OFF ──L3──▶ SEMIVOWEL (य र ल व) ──L3──▶ SIBILANT (श ष स ह) ──L3──▶ OFF
+    ///
+    /// ★**時間窓を持たない**。「素早く 2 回」ではなく「2 回押せば sibilant」であり、
+    ///   打鍵の速さに依存しない。同じ理由でプラットフォーム間にずれる定数も生まない。
+    /// ★LT はこの層に関与しない。LT の意味は「土着でない音」で揃えてある
+    ///   （LT+RB = nukta / LT+RS↑ = candra / LT+A = ऋ / LT+RT = visarga）。
+    ///   श ष स ह は日常語の芯なので、そこに混ぜない。
+    enum class DevaNonVargaLayer { OFF, SEMIVOWEL, SIBILANT }
+
+    var devaNonVargaLayer: DevaNonVargaLayer by mutableStateOf(DevaNonVargaLayer.OFF)
         private set
+
+    /// 非 varga サブレイヤー中か。層の区別が要らない箇所（LS の抑止・可視化）向け。
+    val devaNonVargaActive: Boolean
+        get() = devaNonVargaLayer != DevaNonVargaLayer.OFF
+
     /// LS の latched 方向（varga 選択）。LS と D-pad は物理的に左親指で同時操作
     /// できないため、LS 方向はラッチで保持する。前置シフト方式:
     ///  - LS を方向 X に倒す (first push) → latch = X
@@ -157,7 +171,7 @@ class GamepadInputManager {
             koreanSmartJamo = false
             resetJamoState()
             devanagariComposer.commit()
-            devaNonVargaActive = false
+            devaNonVargaLayer = DevaNonVargaLayer.OFF
             prevDevaDpadDir = DevaDpadDir.NONE
             prevDevaFace = null
             rStickDownTapCount = 0
@@ -520,7 +534,7 @@ class GamepadInputManager {
             resetJamoState()
             // Devanagari もリセット
             devanagariComposer.commit()
-            devaNonVargaActive = false
+            devaNonVargaLayer = DevaNonVargaLayer.OFF
             devaLsDir = DevaLsDirection.NEUTRAL
             prevDevaDpadDir = DevaDpadDir.NONE
             prevDevaFace = null
@@ -757,11 +771,15 @@ class GamepadInputManager {
                         onConfirmOrNewline?.invoke()
                         devaRtUsedForCursor = true
                     } else {
-                        // 通常: 非 varga サブレイヤーをトグル。
+                        // 通常: 非 varga サブレイヤーを巡回。
                         // 注意: composer は commit しない。cluster 途中で子音クラスを
                         // 切替える必要がある（例: स्त्य = sibilant → varga → semivowel）
                         // ので、halant 自動挿入を効かせるには state 保持が必須。
-                        devaNonVargaActive = !devaNonVargaActive
+                        devaNonVargaLayer = when (devaNonVargaLayer) {
+                            DevaNonVargaLayer.OFF -> DevaNonVargaLayer.SEMIVOWEL
+                            DevaNonVargaLayer.SEMIVOWEL -> DevaNonVargaLayer.SIBILANT
+                            DevaNonVargaLayer.SIBILANT -> DevaNonVargaLayer.OFF
+                        }
                         // L3 click は LS 状態のリセットを兼ねる: トグル前後で latch が
                         // 温存されると「押し込み中に傾けた方向が次の click まで残る」
                         // 「傾けた状態で 2 回 click すると latch だけ残る」等が起きて
@@ -1788,7 +1806,11 @@ class GamepadInputManager {
             val consonant: Char? = if (devaNonVargaActive) {
                 val nvIdx = resolveDevaNonVargaIndex(dpadDir)
                 if (nvIdx != null) {
-                    if (ltNow) DEVA_NONVARGA_SIBILANT[nvIdx] else DEVA_NONVARGA_SEMIVOWEL[nvIdx]
+                    if (devaNonVargaLayer == DevaNonVargaLayer.SIBILANT) {
+                        DEVA_NONVARGA_SIBILANT[nvIdx]
+                    } else {
+                        DEVA_NONVARGA_SEMIVOWEL[nvIdx]
+                    }
                 } else null
             } else {
                 val stopIdx = resolveDevaStopIndex(dpadDir)
@@ -1800,7 +1822,7 @@ class GamepadInputManager {
                 // 非 varga サブレイヤーは 1 文字入力で自動 OFF（one-shot）。
                 // 連続 2 文字非 varga が必要な場合は L3 を再度押す。
                 if (devaNonVargaActive) {
-                    devaNonVargaActive = false
+                    devaNonVargaLayer = DevaNonVargaLayer.OFF
                 }
                 // 前置シフト: 左手側出力で LS latch を消費してリセット。
                 // 次の子音は再度 LS を flick して指定する。

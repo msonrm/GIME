@@ -78,12 +78,16 @@ struct GamepadVisualizerView: View {
             return gamepadInput.activeLayer == .lb ? koreanDpadLabelsLB : koreanDpadLabelsBase
         case .devanagari:
             // 非 varga サブレイヤー中 / 通常（varga 時計回り）で表示を切替。
-            // 非 varga: LT 押下で sibilant (श ष स ह) / 離し時 semivowel (य र ल व)
+            // 非 varga: L3 の巡回で semivowel (य र ल व) / sibilant (श ष स ह)。
+            //   ★D-pad に出る字そのものが「いまどちらの層か」の表示を兼ねる。
             // 通常: LS 方向で varga を選び、D-pad が varga 内 stop を表示
             let chars: [String]
-            if gamepadInput.devaNonVargaActive {
-                chars = devaNonVargaDisplayChars(ltPressed: isLTPressed)
-            } else {
+            switch gamepadInput.devaNonVargaLayer {
+            case .semivowel:
+                chars = devaNonVargaDisplayChars(sibilant: false)
+            case .sibilant:
+                chars = devaNonVargaDisplayChars(sibilant: true)
+            case .off:
                 chars = devaVargaDisplayChars(resolveDevaVarga(gamepadInput.devaLsDir))
             }
             // [center, left, up, right, down]
@@ -143,7 +147,7 @@ struct GamepadVisualizerView: View {
             if gamepadInput.koreanSmartJamo { return "자모" }   // 一時モード（空白/句読点で解除）
             return "ㅇ"                                          // 通常: 単押しで ㅇ받침
         case .japanese: return "拗音"
-        case .devanagari: return ""  // LT 単押しは emit 無し（拡張母音/sibilant/nukta の修飾子）
+        case .devanagari: return ""  // LT 単押しは emit 無し（ऋ / nukta / visarga / candra の修飾子）
         }
     }
 

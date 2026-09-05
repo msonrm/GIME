@@ -382,10 +382,10 @@ val DEVA_VARGA_CONSONANTS: Array<Array<Char>> = arrayOf(
     arrayOf('प', 'फ', 'ब', 'भ', 'म'),  // पवर्ग
 )
 
-/// 非 varga 子音サブレイヤー（L3 = LS クリックで突入）
-/// LT 離し: semivowel 層（य र ल व）を varnamala 順に時計回り
-/// LT 押し: sibilant + h 層（श ष स ह）を同順で配置
-/// いずれも D-pad ↑→↓← に割り当て
+/// 非 varga 子音サブレイヤー（L3 = LS クリックで巡回: OFF → SEMIVOWEL → SIBILANT → OFF）
+/// semivowel 層（य र ल व）を varnamala 順に時計回り
+/// sibilant + h 層（श ष स ह）を同順で配置
+/// いずれも D-pad ↑→↓← に割り当て。★層の選択に LT は関与しない
 val DEVA_NONVARGA_SEMIVOWEL: Array<Char> = arrayOf('य', 'र', 'ल', 'व')
 val DEVA_NONVARGA_SIBILANT: Array<Char> = arrayOf('श', 'ष', 'स', 'ह')
 
@@ -461,9 +461,9 @@ fun devaVargaDisplayChars(varga: DevaVarga): Array<String> {
                    row[1].toString(), row[2].toString())
 }
 
-/// 非 varga サブレイヤー表示用: LT OFF (semivowel) / LT ON (sibilant)
-fun devaNonVargaDisplayChars(ltPressed: Boolean): Array<String> {
-    val row = if (ltPressed) DEVA_NONVARGA_SIBILANT else DEVA_NONVARGA_SEMIVOWEL
+/// 非 varga サブレイヤー表示用。層の選択に LT は関与しない（L3 の巡回で決まる）
+fun devaNonVargaDisplayChars(sibilant: Boolean): Array<String> {
+    val row = if (sibilant) DEVA_NONVARGA_SIBILANT else DEVA_NONVARGA_SEMIVOWEL
     // [center(unused), left=row[3], up=row[0], right=row[1], down=row[2]]
     return arrayOf("", row[3].toString(), row[0].toString(),
                    row[1].toString(), row[2].toString())

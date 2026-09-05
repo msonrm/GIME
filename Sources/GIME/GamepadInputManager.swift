@@ -220,9 +220,24 @@ final class GamepadInputManager {
 
     // Devanagari モード状態
     private var devanagariComposer = DevanagariComposer()
-    /// 非 varga サブレイヤー中か（L3 = LS クリックでトグル、1 子音で auto-off）。
-    /// ON の間、D-pad は semivowel (य र ल व) / LT 押下時は sibilant (श ष स ह) を返す。
-    private(set) var devaNonVargaActive: Bool = false
+    /// 非 varga サブレイヤーの層。L3 (LS クリック) で巡回し、1 子音 emit で off に戻る。
+    ///
+    ///     off ──L3──▶ semivowel (य र ल व) ──L3──▶ sibilant (श ष स ह) ──L3──▶ off
+    ///
+    /// ★**時間窓を持たない**。「素早く 2 回」ではなく「2 回押せば sibilant」であり、
+    ///   打鍵の速さに依存しない。同じ理由でプラットフォーム間にずれる定数も生まない。
+    /// ★LT はこの層に関与しない。LT の意味は「土着でない音」で揃えてある
+    ///   （LT+RB = nukta / LT+RS↑ = candra / LT+A = ऋ / LT+RT = visarga）。
+    ///   श ष स ह は日常語の芯なので、そこに混ぜない。
+    enum DevaNonVargaLayer {
+        case off
+        case semivowel
+        case sibilant
+    }
+    private(set) var devaNonVargaLayer: DevaNonVargaLayer = .off
+
+    /// 非 varga サブレイヤー中か。層の区別が要らない箇所（LS の抑止・可視化）向け。
+    var devaNonVargaActive: Bool { devaNonVargaLayer != .off }
     /// LS の latched 方向（varga 選択）。LS と D-pad は物理的に左親指で同時操作
     /// できないため、LS 方向はラッチで保持する。前置シフト方式:
     ///  - LS を方向 X に倒す (first push) → latch = X
@@ -594,7 +609,11 @@ final class GamepadInputManager {
                     // 注意: composer は commit しない。cluster 途中で子音クラスを
                     // 切替える必要がある（例: स्त्य = sibilant → varga → semivowel）
                     // ので、halant 自動挿入を効かせるには state 保持が必須。
-                    devaNonVargaActive.toggle()
+                    switch devaNonVargaLayer {
+                    case .off: devaNonVargaLayer = .semivowel
+                    case .semivowel: devaNonVargaLayer = .sibilant
+                    case .sibilant: devaNonVargaLayer = .off
+                    }
                     // L3 click は LS 状態のリセットを兼ねる: トグル前後で latch が
                     // 温存されると「押し込み中に傾けた方向が次の click まで残る」
                     // 「傾けた状態で 2 回 click すると latch だけ残る」等が起きて
@@ -641,7 +660,7 @@ final class GamepadInputManager {
             koreanLTShortTapEligible = false
             // Devanagari もリセット
             devanagariComposer.commit()
-            devaNonVargaActive = false
+            devaNonVargaLayer = .off
             devaLsDir = .neutral
             prevDevaDpadDir = .none
             prevDevaFace = nil
@@ -1344,11 +1363,14 @@ final class GamepadInputManager {
         // === 子音 emission ===
         if dpadEdge {
             var consonant: Character?
-            if devaNonVargaActive {
+            switch devaNonVargaLayer {
+            case .semivowel, .sibilant:
                 if let nvIdx = resolveDevaNonVargaIndex(dpadDir) {
-                    consonant = ltNow ? devaNonVargaSibilant[nvIdx] : devaNonVargaSemivowel[nvIdx]
+                    consonant = devaNonVargaLayer == .sibilant
+                        ? devaNonVargaSibilant[nvIdx]
+                        : devaNonVargaSemivowel[nvIdx]
                 }
-            } else {
+            case .off:
                 if let stopIdx = resolveDevaStopIndex(dpadDir) {
                     consonant = devaVargaConsonants[varga.rawValue][stopIdx]
                 }
@@ -1358,8 +1380,8 @@ final class GamepadInputManager {
                 onDirectInsert?(out.text, out.replaceCount)
                 // 非 varga サブレイヤーは 1 文字入力で自動 OFF（one-shot）。
                 // 連続 2 文字非 varga が必要な場合は L3 を再度押す。
-                if devaNonVargaActive {
-                    devaNonVargaActive = false
+                if devaNonVargaLayer != .off {
+                    devaNonVargaLayer = .off
                 }
                 // 前置シフト: 左手側出力で LS latch を消費してリセット。
                 // 次の子音は再度 LS を flick して指定する。

@@ -602,7 +602,11 @@ private fun getCellChars(
             val idx = row % 5
             if (idx == 0) return arrayOf("")
             val all: Array<String> = if (inputManager.devaNonVargaActive) {
-                com.gime.android.engine.devaNonVargaDisplayChars(inputManager.btnLT)
+                // ★D-pad に出る字そのものが「いまどちらの層か」の表示を兼ねる。
+                com.gime.android.engine.devaNonVargaDisplayChars(
+                    inputManager.devaNonVargaLayer ==
+                        com.gime.android.input.GamepadInputManager.DevaNonVargaLayer.SIBILANT
+                )
             } else {
                 com.gime.android.engine.devaVargaDisplayChars(
                     com.gime.android.engine.resolveDevaVarga(inputManager.devaLsDir)
@@ -967,9 +971,9 @@ private fun ltLabel(
         else -> "ㅇ"                     // 通常: 単押しで ㅇ받침
     }
     com.gime.android.engine.GamepadInputMode.DEVANAGARI ->
-        // varga モード: LT + A = ऋ / LT + RB = nukta
-        // 非 varga モード: D-pad を semivowel/sibilant 間で切替
-        if (m.devaNonVargaActive) "शष" else "ऋ़"
+        // LT の意味は「土着でない音」で揃えてある（LT+A = ऋ / LT+RB = nukta /
+        // LT+RT = visarga / LT+RS↑ = candra）。非 varga 層の選択には関与しない。
+        "ऋ़"
 }
 
 /// LB ラベル: 押下中は ●、そうでなければ別レイヤーの手がかりを表示
