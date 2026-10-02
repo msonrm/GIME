@@ -447,9 +447,9 @@ final class GamepadInputManager {
                 // Devanagari: composer の buffer を 1 文字 backspace し
                 // 表示も 1 文字削除。composer 側が state を再計算する。
                 if let out = devanagariComposer.backspace() {
-                    onDirectInsert?(out.text, out.replaceCount)
+                    emitInsert(out.text, out.replaceCount)
                 } else {
-                    onDeleteBackward?()
+                    emitDelete()
                 }
             } else {
                 executeAction(.deleteBack)
@@ -461,9 +461,9 @@ final class GamepadInputManager {
             if rStickUp && !prevRStickUp { executeAction(.toggleDakuten) }
             if rStickRight && !prevRStickRight { executeAction(.longVowel) }
         case .english:
-            if rStickUp && !prevRStickUp { onDirectInsert?("'", 0) }
+            if rStickUp && !prevRStickUp { emitInsert("'", 0) }
             if rStickRight && !prevRStickRight {
-                onDirectInsert?("/", 0)
+                emitInsert("/", 0)
                 englishSmartCaps = false
             }
         case .korean:
@@ -572,16 +572,16 @@ final class GamepadInputManager {
                 commitKoreanComposer()
                 releaseKoreanSmartJamo()
             }
-            if lStickRight && !prevLStickRight { onCursorMove?(1) }
-            if lStickLeft && !prevLStickLeft { onCursorMove?(-1) }
-            if lStickUp && !prevLStickUp { onCursorMoveVertical?(-1) }
-            if lStickDown && !prevLStickDown { onCursorMoveVertical?(1) }
+            if lStickRight && !prevLStickRight { emitCursor(1) }
+            if lStickLeft && !prevLStickLeft { emitCursor(-1) }
+            if lStickUp && !prevLStickUp { emitCursorVertical(-1) }
+            if lStickDown && !prevLStickDown { emitCursorVertical(1) }
         } else if inputManager.isEmpty {
             // 日本語 idle: 上下左右カーソル移動
             if lStickRight && !prevLStickRight { executeAction(.cursorRight) }
             if lStickLeft && !prevLStickLeft { executeAction(.cursorLeft) }
-            if lStickUp && !prevLStickUp { onCursorMoveVertical?(-1) }
-            if lStickDown && !prevLStickDown { onCursorMoveVertical?(1) }
+            if lStickUp && !prevLStickUp { emitCursorVertical(-1) }
+            if lStickDown && !prevLStickDown { emitCursorVertical(1) }
         } else {
             if lStickDown && !prevLStickDown { executeAction(.convert) }
             if lStickUp && !prevLStickUp { executeAction(.prevCandidate) }
@@ -609,7 +609,7 @@ final class GamepadInputManager {
                     commitKoreanComposer()
                     releaseKoreanSmartJamo()
                 }
-                onDirectInsert?(" ", 0)
+                emitInsert(" ", 0)
             }
         }
         // DualSense 等のチャタリング対策として lsDebounceInterval 以内の
@@ -795,7 +795,7 @@ final class GamepadInputManager {
             let vowelChanged = vowel != prevVowel
 
             if prevVowel == nil {
-                onDirectInsert?(char, 0)
+                emitInsert(char, 0)
                 eagerChar = char
                 eagerCharLen = 1
                 eagerTime = now
@@ -803,9 +803,9 @@ final class GamepadInputManager {
                 let consonantReleased = rowChanged && consonantCount < prevConsonantCount
                 if !consonantReleased {
                     if eagerChar != nil && (now - eagerTime) < chordWindow {
-                        onDirectInsert?(char, eagerCharLen)
+                        emitInsert(char, eagerCharLen)
                     } else {
-                        onDirectInsert?(char, 0)
+                        emitInsert(char, 0)
                     }
                     eagerChar = char
                     eagerCharLen = 1
@@ -861,7 +861,7 @@ final class GamepadInputManager {
         if rtNow && !prevRT { rtUsed = false }
         if !rtNow && prevRT {
             if !rtUsed && !ltNow {
-                onDirectInsert?("0", 0)
+                emitInsert("0", 0)
             }
             rtUsed = false
         }
@@ -951,17 +951,22 @@ final class GamepadInputManager {
         // === 받침巻き戻し: 母音が来たら直前の받침を取り消す ===
         // LB が先に到着して誤ったパッチムが適用された場合、
         // 母音到着で新音節と判断し、パッチムを元に戻す。
-        // ただし겹받침（patchimRollbackCoda != nil）は巻き戻さない。
-        // 겹받침は明示的に2回の받침入力で形成されるため、
-        // 新音節の onset が別途指定されている以上、分解すべきでない。
+        // ★**겹받침も戻す**（戻し先は 1 つ目の받침）。以前は「겹받침は明示的に 2 回の받침
+        //   入力で作るので分解しない」と除外していたが、その前提が成り立たない:
+        //   巻き戻せる状態は**子音を押している間しか続かない**（離すと
+        //   `patchimRollbackActive` が落ちる）ので、ここに来るのは**その子音が次の音節の
+        //   頭だった**ときだけ。意図した겹받침は必ず一度離すので、戻して困る場面が無い。
+        //   除外していたせいで `우울해요` が `우욿해요` になっていた（Higgins 実機）。
+        // ★「戻せる」は**成功した받침のあとだけ**立つ（`inputPatchim` が .added を返した
+        //   ときだけ）。不成立の組み合わせで立てると、前の音節の받침まで消える。
         if vowelNow && patchimRollbackActive {
-            if patchimRollbackCoda == nil {
-                koreanComposer.revertCoda(to: nil)
-                if let onset = koreanComposer.currentOnset,
-                   let nucleus = koreanComposer.currentNucleus {
-                    let coda = koreanComposer.currentCoda ?? 0
-                    let code = 0xAC00 + (onset * 21 + nucleus) * 28 + coda
-                    onDirectInsert?(String(Character(UnicodeScalar(code)!)), 1)
+            koreanComposer.revertCoda(to: patchimRollbackCoda)
+            if let onset = koreanComposer.currentOnset,
+               let nucleus = koreanComposer.currentNucleus {
+                let coda = koreanComposer.currentCoda ?? 0
+                let code = 0xAC00 + (onset * 21 + nucleus) * 28 + coda
+                if let scalar = UnicodeScalar(code) {
+                    emitInsert(String(Character(scalar)), 1)
                 }
             }
             patchimRollbackActive = false
@@ -985,7 +990,7 @@ final class GamepadInputManager {
 
             if prevVowel == nil {
                 let output = koreanComposer.inputSyllable(onset: onsetIdx, nucleus: nucleusIdx)
-                onDirectInsert?(output.text, output.replaceCount)
+                emitInsert(output.text, output.replaceCount)
                 eagerChar = output.text
                 eagerCharLen = 1
                 eagerTime = now
@@ -998,11 +1003,11 @@ final class GamepadInputManager {
                     // ★RT が着いただけなら**時間窓を見ない** —— 母音のボタンは離れて
                     //   いないので、間が空いても同じ音節の差し替えであることは確か。
                     if rtPressed && !rowChanged && !vowelChanged {
-                        onDirectInsert?(output.text, eagerCharLen)
+                        emitInsert(output.text, eagerCharLen)
                     } else if eagerChar != nil && (now - eagerTime) < chordWindow {
-                        onDirectInsert?(output.text, eagerCharLen)
+                        emitInsert(output.text, eagerCharLen)
                     } else {
-                        onDirectInsert?(output.text, output.replaceCount)
+                        emitInsert(output.text, output.replaceCount)
                     }
                     eagerChar = output.text
                     eagerCharLen = 1
@@ -1043,7 +1048,7 @@ final class GamepadInputManager {
                 let prevCoda = koreanComposer.currentCoda
                 let codaIdx = koreanCodaForRow[row]
                 if case .added(let output) = koreanComposer.inputPatchim(codaIndex: codaIdx, codaRow: row) {
-                    onDirectInsert?(output.text, output.replaceCount)
+                    emitInsert(output.text, output.replaceCount)
                     patchimRollbackCoda = prevCoda
                     patchimRollbackActive = true
                     allReleasedSinceSyllable = false
@@ -1053,7 +1058,7 @@ final class GamepadInputManager {
                 koreanComposer.revertCoda(to: patchimRollbackCoda)
                 let codaIdx = koreanCodaForRow[row]
                 if case .added(let output) = koreanComposer.inputPatchim(codaIndex: codaIdx, codaRow: row) {
-                    onDirectInsert?(output.text, output.replaceCount)
+                    emitInsert(output.text, output.replaceCount)
                 }
             }
         }
@@ -1083,7 +1088,7 @@ final class GamepadInputManager {
     /// 받침入力（겹받침・上書き対応）
     private func handleKoreanPatchim(codaIndex: Int, codaRow: Int) {
         guard case .added(let output) = koreanComposer.inputPatchim(codaIndex: codaIndex, codaRow: codaRow) else { return }
-        onDirectInsert?(output.text, output.replaceCount)
+        emitInsert(output.text, output.replaceCount)
     }
 
     /// 子音サイクル（平音→激音→濃音→平音）
@@ -1093,14 +1098,14 @@ final class GamepadInputManager {
         if let currentCoda = koreanComposer.currentCoda,
            let nextCoda = koreanCodaCycle[currentCoda],
            let output = koreanComposer.modifyCoda(to: nextCoda) {
-            onDirectInsert?(output.text, output.replaceCount)
+            emitInsert(output.text, output.replaceCount)
             return
         }
         // なければ초성をサイクル
         guard let currentOnset = koreanComposer.currentOnset,
               let nextOnset = koreanOnsetCycle[currentOnset],
               let output = koreanComposer.modifyOnset(to: nextOnset) else { return }
-        onDirectInsert?(output.text, output.replaceCount)
+        emitInsert(output.text, output.replaceCount)
     }
 
     /// 複合母音（ㅣ付加: ㅏ→ㅐ, ㅓ→ㅔ, ㅗ→ㅚ 等）
@@ -1108,7 +1113,7 @@ final class GamepadInputManager {
         guard let currentNucleus = koreanComposer.currentNucleus,
               let newNucleus = koreanNucleusAddI[currentNucleus],
               let output = koreanComposer.modifyNucleus(to: newNucleus) else { return }
-        onDirectInsert?(output.text, output.replaceCount)
+        emitInsert(output.text, output.replaceCount)
     }
 
     /// 複合母音（ㅏ/ㅓ付加: ㅗ→ㅘ, ㅜ→ㅝ 等）
@@ -1116,7 +1121,7 @@ final class GamepadInputManager {
         guard let currentNucleus = koreanComposer.currentNucleus,
               let newNucleus = koreanNucleusAddAEo[currentNucleus],
               let output = koreanComposer.modifyNucleus(to: newNucleus) else { return }
-        onDirectInsert?(output.text, output.replaceCount)
+        emitInsert(output.text, output.replaceCount)
     }
 
     // MARK: - 韓国語 LT 処理（ㅇ받침 + 자모 모드切替）
@@ -1167,17 +1172,18 @@ final class GamepadInputManager {
                     // Row 0 (ㅇ) は D-pad/LB のどれも押さない位置なので
                     // 通常の chord 経路では入力不可。LT にその役割を与える。
                     let jamoChar = koreanCompatJamoOnset(11)  // ㅇ
-                    onDirectInsert?(jamoChar, 0)
+                    emitInsert(jamoChar, 0)
                     lastJamoText = jamoChar
                     lastJamoOnsetIndex = 11
                     jamoEagerText = nil
                 } else if koreanLTShortTapEligible {
                     // 音節合成中: ㅇ받침
                     let codaIdx = koreanCodaForRow[0]  // ㅇ
+                    let prevCoda = koreanComposer.currentCoda
                     if case .added(let output) = koreanComposer.inputPatchim(codaIndex: codaIdx, codaRow: 0) {
-                        patchimRollbackCoda = nil
+                        patchimRollbackCoda = prevCoda
                         patchimRollbackActive = true
-                        onDirectInsert?(output.text, output.replaceCount)
+                        emitInsert(output.text, output.replaceCount)
                         allReleasedSinceSyllable = false
                     }
                 }
@@ -1225,7 +1231,7 @@ final class GamepadInputManager {
         if lbReleased && jamoLbOnlyPending {
             let onsetIdx = koreanOnsetForRow[5]  // ㅁ
             let jamoChar = koreanCompatJamoOnset(onsetIdx)
-            onDirectInsert?(jamoChar, 0)
+            emitInsert(jamoChar, 0)
             lastJamoText = jamoChar
             lastJamoOnsetIndex = onsetIdx
             jamoEagerText = nil
@@ -1242,7 +1248,7 @@ final class GamepadInputManager {
             let jamoChar = koreanCompatJamoOnset(onsetIdx)
             if !prevDpadDirActive {
                 // 方向キーの新規押下（LB が先行していても row は LB 込みで解決済み）
-                onDirectInsert?(jamoChar, 0)
+                emitInsert(jamoChar, 0)
                 jamoEagerText = jamoChar
                 jamoEagerLen = (jamoChar as NSString).length
                 jamoEagerTime = now
@@ -1253,9 +1259,9 @@ final class GamepadInputManager {
                 // （LB 単独リリースや他の row 変化では refine しない: 直前の選択を尊重）
                 let elapsed = now - jamoEagerTime
                 if elapsed < chordWindow, jamoEagerText != nil {
-                    onDirectInsert?(jamoChar, jamoEagerLen)
+                    emitInsert(jamoChar, jamoEagerLen)
                 } else {
-                    onDirectInsert?(jamoChar, 0)
+                    emitInsert(jamoChar, 0)
                 }
                 jamoEagerText = jamoChar
                 jamoEagerLen = (jamoChar as NSString).length
@@ -1274,7 +1280,7 @@ final class GamepadInputManager {
             let v = vowel!.rawValue
             let nucleusIdx = rtNow ? koreanNucleusShifted[v] : koreanNucleusBase[v]
             let jamoChar = koreanCompatJamoNucleus(nucleusIdx)
-            onDirectInsert?(jamoChar, 0)
+            emitInsert(jamoChar, 0)
             lastJamoText = jamoChar
             lastJamoOnsetIndex = nil
             // 母音が来たら子音 eager は終了
@@ -1286,7 +1292,7 @@ final class GamepadInputManager {
     /// handleSnapshot の右スティック → の분岐から呼ばれる。
     private func handleJamoRepeat() {
         guard let last = lastJamoText else { return }
-        onDirectInsert?(last, 0)
+        emitInsert(last, 0)
         // lastJamoText / lastJamoOnsetIndex はそのまま（連打続行可能）。
         // ↑ サイクルを直後に押した場合も直前字母を対象にする。
         jamoEagerText = nil  // 連打は chord refine の対象外
@@ -1300,7 +1306,7 @@ final class GamepadInputManager {
               lastLen > 0,
               let nextOnset = koreanOnsetCycle[lastOnset] else { return }
         let newChar = koreanCompatJamoOnset(nextOnset)
-        onDirectInsert?(newChar, lastLen)
+        emitInsert(newChar, lastLen)
         lastJamoText = newChar
         lastJamoOnsetIndex = nextOnset
         // まだ子音が押されたままなら eager も連動させる
@@ -1359,10 +1365,10 @@ final class GamepadInputManager {
         if rtNow {
             if lsPushEdge {
                 switch rawLsDir {
-                case .left:  onCursorMove?(-1)
-                case .right: onCursorMove?(1)
-                case .up:    onCursorMoveVertical?(-1)
-                case .down:  onCursorMoveVertical?(1)
+                case .left:  emitCursor(-1)
+                case .right: emitCursor(1)
+                case .up:    emitCursorVertical(-1)
+                case .down:  emitCursorVertical(1)
                 case .neutral: break
                 }
                 devaRtUsedForCursor = true
@@ -1411,7 +1417,7 @@ final class GamepadInputManager {
             }
             if let c = consonant {
                 let out = devanagariComposer.inputConsonant(c)
-                onDirectInsert?(out.text, out.replaceCount)
+                emitInsert(out.text, out.replaceCount)
                 // 非 varga サブレイヤーは 1 文字入力で自動 OFF（one-shot）。
                 // 連続 2 文字非 varga が必要な場合は L3 を再度押す。
                 if devaNonVargaLayer != .off {
@@ -1428,7 +1434,7 @@ final class GamepadInputManager {
         if lbEdge {
             let nasal = devaVargaConsonants[varga.rawValue][4]
             let out = devanagariComposer.inputConsonant(nasal)
-            onDirectInsert?(out.text, out.replaceCount)
+            emitInsert(out.text, out.replaceCount)
             // 前置シフト: 左手側出力で LS latch を消費してリセット。
             devaLsDir = .neutral
         }
@@ -1446,10 +1452,10 @@ final class GamepadInputManager {
                 : devaFaceVowelIndependent[face]
             if let matra, let indep {
                 if let matraOut = devanagariComposer.inputMatra(matra) {
-                    onDirectInsert?(matraOut.text, matraOut.replaceCount)
+                    emitInsert(matraOut.text, matraOut.replaceCount)
                 } else {
                     let out = devanagariComposer.inputIndependentVowel(indep)
-                    onDirectInsert?(out.text, out.replaceCount)
+                    emitInsert(out.text, out.replaceCount)
                 }
             }
         }
@@ -1461,7 +1467,7 @@ final class GamepadInputManager {
         let bothTriggersWerePrevHeld = prevLT && prevRT
         if bothTriggersHeld && !bothTriggersWerePrevHeld {
             if let out = devanagariComposer.inputVisarga() {
-                onDirectInsert?(out.text, out.replaceCount)
+                emitInsert(out.text, out.replaceCount)
                 devaRtUsedForCursor = true
             }
         }
@@ -1470,7 +1476,7 @@ final class GamepadInputManager {
         if !rtNow && prevRT {
             if !devaRtUsedForCursor {
                 if let out = devanagariComposer.inputHalant() {
-                    onDirectInsert?(out.text, out.replaceCount)
+                    emitInsert(out.text, out.replaceCount)
                 }
             }
             devaRtUsedForCursor = false
@@ -1481,14 +1487,14 @@ final class GamepadInputManager {
         if gp.rb && !prevRB {
             if ltNow {
                 if let out = devanagariComposer.inputNukta() {
-                    onDirectInsert?(out.text, out.replaceCount)
+                    emitInsert(out.text, out.replaceCount)
                 }
             } else {
                 if let matraOut = devanagariComposer.inputMatra("ो") {
-                    onDirectInsert?(matraOut.text, matraOut.replaceCount)
+                    emitInsert(matraOut.text, matraOut.replaceCount)
                 } else {
                     let out = devanagariComposer.inputIndependentVowel("ओ")
-                    onDirectInsert?(out.text, out.replaceCount)
+                    emitInsert(out.text, out.replaceCount)
                 }
             }
         }
@@ -1502,17 +1508,17 @@ final class GamepadInputManager {
         if rStickUp && !prevRStickUp {
             if ltNow {
                 if let out = devanagariComposer.applyCandra() {
-                    onDirectInsert?(out.text, out.replaceCount)
+                    emitInsert(out.text, out.replaceCount)
                 }
             } else if let out = devanagariComposer.toggleAnusvara() {
-                onDirectInsert?(out.text, out.replaceCount)
+                emitInsert(out.text, out.replaceCount)
             }
         }
 
         // === RS →: 長母音 post-shift（直前 matra / 独立母音を長形に）===
         if rStickRight && !prevRStickRight {
             if let out = devanagariComposer.applyLongShift() {
-                onDirectInsert?(out.text, out.replaceCount)
+                emitInsert(out.text, out.replaceCount)
             }
         }
 
@@ -1521,9 +1527,45 @@ final class GamepadInputManager {
         prevDevaFace = face
         prevDevaRawLsDir = rawLsDir
     }
+    // MARK: - 出力の入口（句読点の巡回を切る）
+
+    /// RS↓ の句読点の巡回（空白 → . → ? …）を切る。
+    ///
+    /// ★窓（`doubleTapWindow`）は押すたびに延びるので、時間だけで続きを判定すると
+    ///   「空白 → 字を打つ → 窓の中でもう一度 ↓」で 2 段目が発火し、**いま打った字を
+    ///   食う**。韓国語は 5 段あるので連打すると `'` 側まで進む（Higgins 実機で発覚）。
+    /// ★**入れたあとに覚え直す**形にしてある —— 句読点の経路だけが生の
+    ///   `onDirectInsert` を呼び、それ以外の出力は下の `emit*` を通って必ずここで切れる。
+    ///   呼ぶ場所を数え上げる形にすると、いつか 1 つ忘れる。
+    private func punctBreak() {
+        rStickDownTapCount = 0
+        rStickDownLastTime = 0
+    }
+
+    private func emitInsert(_ text: String, _ replaceCount: Int) {
+        punctBreak()
+        onDirectInsert?(text, replaceCount)
+    }
+
+    private func emitDelete() {
+        punctBreak()
+        onDeleteBackward?()
+    }
+
+    private func emitCursor(_ offset: Int) {
+        punctBreak()
+        onCursorMove?(offset)
+    }
+
+    private func emitCursorVertical(_ direction: Int) {
+        punctBreak()
+        onCursorMoveVertical?(direction)
+    }
+
     // MARK: - アクション実行
 
     private func executeAction(_ action: GamepadAction) {
+        punctBreak()
         // ★RT の巡回は「別入力が入ったら切れる」（`docs/gamepad-mapping.md` の仕様）。
         //   ここで一括して落とし、RT 自身の経路だけが呼び出し後に now を入れ直す。
         //   かな・拗音・濁点・長音・スティック操作が全部この 1 点を通るので漏れない。
@@ -1554,13 +1596,13 @@ final class GamepadInputManager {
             }
             if inputManager.isEmpty {
                 // idle 時: UITextView 側で1文字削除
-                onDeleteBackward?()
+                emitDelete()
             } else {
                 _ = inputManager.deleteBackward()
             }
         case .space:
             if !inputManager.isEmpty { _ = inputManager.confirmAll() }
-            onDirectInsert?(" ", 0)
+            emitInsert(" ", 0)
         case .cancel:
             _ = inputManager.cancelConversion()
         case .confirmOrNewline:
@@ -1578,7 +1620,7 @@ final class GamepadInputManager {
                     releaseKoreanSmartJamo()
                 }
                 // 通常状態: 改行
-                onDirectInsert?("\n", 0)
+                emitInsert("\n", 0)
             }
         case .longVowel:
             inputManager.appendDirectKana("ー")
@@ -1607,9 +1649,9 @@ final class GamepadInputManager {
         case .shrinkSegment:
             inputManager.editSegment(count: -1)
         case .cursorLeft:
-            onCursorMove?(-1)
+            emitCursor(-1)
         case .cursorRight:
-            onCursorMove?(1)
+            emitCursor(1)
         }
     }
 
