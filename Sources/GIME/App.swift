@@ -33,7 +33,7 @@ struct ContentView: View {
     @State private var selectionLength: Int = 0
     @State private var caretRect: CGRect = .zero
 
-    /// エディタ表示スタイル。compact 幅では小さめのフォント、regular では動画撮影向けの大きめフォント。
+    /// エディタ表示スタイル。compact 幅では小さめのフォント、regular では配信・動画撮影向けの大きめフォント（42pt）。
     private var editorStyle: EditorStyle {
         if isCompactWidth {
             return EditorStyle(
@@ -42,15 +42,17 @@ struct ContentView: View {
             )
         } else {
             return EditorStyle(
-                font: .monospacedSystemFont(ofSize: 28, weight: .regular),
-                lineSpacing: 4
+                // ★配信向けに 28 → 42（1.5 倍。2026-10 の要望）。行間も比例させる。
+                font: .monospacedSystemFont(ofSize: 42, weight: .regular),
+                lineSpacing: 6
             )
         }
     }
 
     /// 変換候補ポップアップのフォントサイズ
     private var candidateFontSize: CGFloat {
-        isCompactWidth ? 18 : 28
+        // 本文と同じ 1.5 倍（本文だけ大きいと候補が小さく見える）
+        isCompactWidth ? 18 : 42
     }
 
     /// ゲームパッド未接続プレースホルダの高さ

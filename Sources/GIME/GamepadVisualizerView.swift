@@ -7,6 +7,8 @@ struct GamepadVisualizerView: View {
 
     @State private var showSettings = false
     @State private var isCollapsed = false
+    /// 本体が使える横幅。regular のうち広い画面（iPad フル幅）だけ `large` を選ぶのに使う。
+    @State private var availableWidth: CGFloat = 0
 
     /// iPhone など狭幅では spacing / padding を詰めてはみ出しを防ぐ
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -32,6 +34,9 @@ struct GamepadVisualizerView: View {
         let columnSpacing: CGFloat
         let outerPadding: CGFloat
         let dpadFontSize: CGFloat
+        /// 英語の十字配置（1 マスに 4 字）専用。★1 字ぶんの dpad と**同じ大きさにはできない**
+        /// （4 字が ±cell×0.25 で並ぶので、cell の半分に収まる大きさが上限）。
+        let crossFontSize: CGFloat
         let faceFontSize: CGFloat
         let shoulderFontSize: CGFloat
         let shoulderNameFontSize: CGFloat
@@ -42,7 +47,7 @@ struct GamepadVisualizerView: View {
             stickOuter: 60, stickCell: 18, stickGap: 2,
             shoulderMinW: 52, shoulderMinH: 44,
             columnSpacing: 24, outerPadding: 16,
-            dpadFontSize: 13, faceFontSize: 16,
+            dpadFontSize: 18, crossFontSize: 13, faceFontSize: 16,
             shoulderFontSize: 16, shoulderNameFontSize: 10,
             // ★スティックのラベルは実機（iPad）で読めなかったので 9 → 13.5（1.5 倍）。
             //   dpad 13 / face 16 の間に収まるので浮かない。compact（iPhone）は据え置き。
@@ -53,13 +58,34 @@ struct GamepadVisualizerView: View {
             stickOuter: 44, stickCell: 13, stickGap: 1,
             shoulderMinW: 42, shoulderMinH: 36,
             columnSpacing: 4, outerPadding: 6,
-            dpadFontSize: 11, faceFontSize: 13,
+            dpadFontSize: 14, crossFontSize: 11, faceFontSize: 13,
             shoulderFontSize: 12, shoulderNameFontSize: 9,
             stickFontSize: 8
         )
+        /// iPad のフル幅など、横幅に余裕があるとき。
+        /// ★実機の指摘（2026-10）: フェイスボタンだけ大きく、スティック・D-pad・肩が小さかった。
+        ///   原因は 2 つ: ① `dpadFontSize` が**英語の十字配置（1 マスに 4 字）に合わせた 13**
+        ///   のまま 1 字の D-pad にも使われていた ② スティックは**セルが 18pt**で、
+        ///   フォントを上げても `minimumScaleFactor` で縮められていた（セルから広げる必要がある）。
+        /// 合計幅 = 104 + 24 + (60*3+8) + 24 + (56*3+8) + 24 + 104 = 644pt
+        static let large = VizMetrics(
+            dpadCell: 60, faceCell: 56,
+            stickOuter: 104, stickCell: 32, stickGap: 2,
+            shoulderMinW: 64, shoulderMinH: 52,
+            columnSpacing: 24, outerPadding: 16,
+            dpadFontSize: 24, crossFontSize: 15, faceFontSize: 22,
+            shoulderFontSize: 22, shoulderNameFontSize: 12,
+            stickFontSize: 20
+        )
     }
 
-    private var m: VizMetrics { isCompactWidth ? .compact : .regular }
+    /// `large` に必要な横幅（合計幅 644 + 本体の余白 16×2 に少し余裕）。
+    private static let largeMinWidth: CGFloat = 690
+
+    private var m: VizMetrics {
+        if isCompactWidth { return .compact }
+        return availableWidth >= Self.largeMinWidth ? .large : .regular
+    }
 
     /// スティックの役割（左 / 右）。レイアウト・ラベル解決の分岐に使用。
     private enum StickRole { case left, right }
@@ -388,6 +414,8 @@ struct GamepadVisualizerView: View {
                 .background(.background, in: RoundedRectangle(cornerRadius: 16))
             }
         }
+        // ★折りたたみ中も幅は測る（展開した瞬間に寸法が跳ねないように）。
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
         .sheet(isPresented: $showSettings) {
             GamepadSettingsSheet(
                 gamepadInput: gamepadInput
@@ -559,7 +587,7 @@ struct GamepadVisualizerView: View {
                 .font(.system(size: m.stickFontSize, weight: .semibold))
                 .foregroundStyle(isActive ? Color.white : Color.secondary)
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .minimumScaleFactor(0.5)
         }
         .frame(width: cell, height: cell)
     }
@@ -744,7 +772,7 @@ struct GamepadVisualizerView: View {
                 Text(chars.down).offset(y: off)
             }
         }
-        .font(.system(size: m.dpadFontSize, weight: .bold))
+        .font(.system(size: m.crossFontSize, weight: .bold))
         .frame(width: cell, height: cell)
         .background(pressed ? Color.accentColor : Color(.systemGray5).opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
         .foregroundStyle(pressed ? .white : .secondary)
@@ -757,6 +785,8 @@ struct GamepadVisualizerView: View {
     private func dpadButton(label: String, pressed: Bool) -> some View {
         Text(label)
             .font(.system(size: m.dpadFontSize, weight: .bold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.5)
             .frame(width: m.dpadCell, height: m.dpadCell)
             .background(pressed ? Color.accentColor : Color(.systemGray5).opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
             .foregroundStyle(pressed ? .white : .secondary)
