@@ -51,8 +51,9 @@ struct ContentView: View {
 
     /// 変換候補ポップアップのフォントサイズ
     private var candidateFontSize: CGFloat {
-        // 本文と同じ 1.5 倍（本文だけ大きいと候補が小さく見える）
-        isCompactWidth ? 18 : 42
+        // ★本文は 42pt だが、候補は 9 件の縦並びなので 28 に戻した（42 だと画面を覆う）。
+        //   多い候補はページ送り（下の点列）で見せる。
+        isCompactWidth ? 18 : 28
     }
 
     /// ゲームパッド未接続プレースホルダの高さ
@@ -82,13 +83,19 @@ struct ContentView: View {
                     // 変換候補ポップアップ（日本語）
                     if inputManager.state == .selecting {
                         CandidatePopup(
-                            additionalCandidates: inputManager.visibleAdditionalCandidates,
+                            // 追加候補（ひらがな・カタカナ等）は 1 ページ目でだけ見せる。2 ページ目以降は
+                            // ↑ でそのページ内を遡るだけで到達できず、「選べそうで選べない」になるため（へちまと同じ）
+                            additionalCandidates: (inputManager.candidatePageIndex == 0
+                                || inputManager.isAdditionalCandidateSelected)
+                                ? inputManager.visibleAdditionalCandidates : [],
                             isAdditionalCandidateSelected: inputManager.isAdditionalCandidateSelected,
                             selectedAdditionalCandidateIndex: inputManager.selectedAdditionalCandidateIndex,
                             candidates: inputManager.visibleCandidateTexts,
                             selectedIndex: inputManager.selectedIndexInWindow,
                             font: .system(size: candidateFontSize),
                             fontSize: candidateFontSize,
+                            pageCount: inputManager.candidatePageCount,
+                            pageIndex: inputManager.candidatePageIndex,
                             anchor: caretRect,
                             bounds: geo.size
                         )
@@ -125,6 +132,10 @@ struct ContentView: View {
             }
         }
         .onAppear {
+            // 候補は固定ページで見せる（へちまと同じ。点列でページ位置を示す）
+            inputManager.pagedCandidateWindow = true
+            // 50 件で打ち切る（へちまと同じ）。ページ数が 6 以下になり、点列が常に出る
+            inputManager.maxCandidateCount = 50
             let gp = GamepadInputManager(inputManager: inputManager)
             gp.onCursorMove = { offset in
                 let textLen = (text as NSString).length
