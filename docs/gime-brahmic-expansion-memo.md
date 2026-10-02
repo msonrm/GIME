@@ -315,7 +315,7 @@ nukta は借用音 dot、anusvara/chandrabindu は鼻音、visarga は Sanskrit 
 | LB | 鼻音直送（varga モード時）/ 修飾子組合せ |
 | face buttons 4 | 主要短母音 4（a, i, u, e） |
 | RS ← | **backspace**（合成中は composer の buffer を 1 字戻す） |
-| RS ↓ | **句読点サイクル**（空白 → `।` danda → `,` → `॥` double danda・多段タップ）。★`,` は 2026-09-05 に Higgins へ合わせて追加（iOS のみ・Android 未追随） |
+| RS ↓ | **句読点サイクル**（空白 → `।` danda → `,` → `॥` double danda・多段タップ）。★`,` は 2026-09-05 に Higgins へ合わせて追加（iOS / Android） |
 | RS → | 長母音 post-shift |
 | RS ↑ | anusvara ↔ chandrabindu cycle ／ **LT + RS ↑ = candra（`ॉ` `ॅ`）** |
 | RB | **`ओ` / `ो`**（単押し）／ **LT + RB = nukta** |

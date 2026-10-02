@@ -174,8 +174,7 @@ class GamepadInputManager {
             devaNonVargaLayer = DevaNonVargaLayer.OFF
             prevDevaDpadDir = DevaDpadDir.NONE
             prevDevaFace = null
-            rStickDownTapCount = 0
-            rStickDownLastTime = 0
+            breakCycles()
         }
     }
 
@@ -185,6 +184,42 @@ class GamepadInputManager {
     var onDeleteBackward: (() -> Unit)? = null
     var onCursorMove: ((offset: Int) -> Unit)? = null
     var onCursorMoveVertical: ((direction: Int) -> Unit)? = null
+
+    // MARK: - 出力の入口（句読点・RT の巡回を切る）
+
+    /// RS↓ の句読点巡回と RT 単押しの巡回（ん → を → んを）を切る。
+    ///
+    /// ★窓は押すたびに延びるので、時間だけで「続けて押したか」を見ると、空白を出して字を
+    ///   打ち、窓の中でもう一度 ↓ を押したときに 2 段目が発火して**いま打った字を食う**
+    ///   （韓国語は 6 段あるので連打すると `』` まで走る。Higgins 実機で発覚）。
+    /// ★**入れたあとに覚え直す**形 —— 句読点の経路（と RT 巡回の経路）だけが
+    ///   生の `onDirectInsert` / 自前の時刻更新を持ち、それ以外の出力は下の `emit*` を
+    ///   通って必ずここで切れる。呼ぶ場所を数え上げる形にすると、いつか 1 つ忘れる。
+    private fun breakCycles() {
+        rStickDownTapCount = 0
+        rStickDownLastTime = 0
+        rtCycleLastTime = 0
+    }
+
+    private fun emitInsert(text: String, replaceCount: Int) {
+        breakCycles()
+        onDirectInsert?.invoke(text, replaceCount)
+    }
+
+    private fun emitDelete() {
+        breakCycles()
+        onDeleteBackward?.invoke()
+    }
+
+    private fun emitCursor(offset: Int) {
+        breakCycles()
+        onCursorMove?.invoke(offset)
+    }
+
+    private fun emitCursorVertical(direction: Int) {
+        breakCycles()
+        onCursorMoveVertical?.invoke(direction)
+    }
     var onConfirmOrNewline: (() -> Unit)? = null
     /// LT 押下中の LS click で発火。Slack/Discord 等の「Ctrl+Enter で送信」用に IME 経由で
     /// Ctrl+Enter を host アプリへ送る想定。実装側で no-op にしてもよい。
@@ -259,6 +294,12 @@ class GamepadInputManager {
     // 右スティック
     private var rStickDownLastTime: Long = 0
     private var rStickDownTapCount: Int = 0
+    /// RT 単押しの巡回（ん → を → んを → ん）。前の出力を**差し替える**形。
+    /// 「んを」はあるが「をん」は無い、という日本語の事実に対応した巡回。
+    /// 別入力が入ったら切れる（`breakCycles()`）。窓は RS↓ と同じ `doubleTapWindow`。
+    private val rtCycleChars = listOf("ん", "を", "んを")
+    private var rtCycleIndex: Int = 0
+    private var rtCycleLastTime: Long = 0
     // RS↓ debounce 用: 最後に採用した RS↓ 立ち上がりエッジの時刻
     private var lastRsDownEdgeTime: Long = 0
     private var prevRStickUp = false
@@ -539,9 +580,8 @@ class GamepadInputManager {
             prevDevaDpadDir = DevaDpadDir.NONE
             prevDevaFace = null
             prevDevaRawLsDir = DevaLsDirection.NEUTRAL
-            // rStickDown 多段タップもリセット
-            rStickDownTapCount = 0
-            rStickDownLastTime = 0
+            // rStickDown 多段タップ・RT 巡回もリセット
+            breakCycles()
         }
 
         // Back: 操作モード切替
@@ -561,9 +601,9 @@ class GamepadInputManager {
                         cancelConversion()
                     } else if (hiraganaBuffer.isNotEmpty()) {
                         hiraganaBuffer = hiraganaBuffer.dropLast(1)
-                        onDeleteBackward?.invoke()
+                        emitDelete()
                     } else {
-                        onDeleteBackward?.invoke()
+                        emitDelete()
                     }
                 } else if (currentMode == GamepadInputMode.KOREAN) {
                     // 韓国語: 合成中の字を削除する場合、合成状態もクリアしないと
@@ -572,18 +612,18 @@ class GamepadInputManager {
                     commitKoreanComposer()
                     releaseKoreanSmartJamo()
                     resetJamoState()
-                    onDeleteBackward?.invoke()
+                    emitDelete()
                 } else if (currentMode == GamepadInputMode.DEVANAGARI) {
                     // Devanagari: composer の buffer を 1 文字 backspace し
                     // 表示も 1 文字削除。composer backspace が state を再計算する。
                     val out = devanagariComposer.backspace()
                     if (out != null) {
-                        onDirectInsert?.invoke(out.text, out.replaceCount)
+                        emitInsert(out.text, out.replaceCount)
                     } else {
-                        onDeleteBackward?.invoke()
+                        emitDelete()
                     }
                 } else {
-                    onDeleteBackward?.invoke()
+                    emitDelete()
                 }
             }
         }
@@ -631,7 +671,8 @@ class GamepadInputManager {
                             1 -> onDirectInsert?.invoke("、", 0)
                             2 -> onDirectInsert?.invoke("。", 1)
                             else -> {
-                                onDirectInsert?.invoke(" ", 1)
+                                // ★全角空白（Higgins に合わせた。日本語の文中に置くのは全角）
+                                onDirectInsert?.invoke("\u3000", 1)
                                 rStickDownTapCount = 0
                                 rStickDownLastTime = 0
                             }
@@ -654,19 +695,24 @@ class GamepadInputManager {
                         releaseKoreanSmartJamo()
                         resetJamoState()
                         when (rStickDownTapCount) {
-                            // space → .
+                            // space → . → ? → , → 『 → 』（Higgins に合わせた 6 段）
                             1 -> onDirectInsert?.invoke(" ", 0)
+                            2 -> onDirectInsert?.invoke(".", 1)
+                            3 -> onDirectInsert?.invoke("?", 1)
+                            4 -> onDirectInsert?.invoke(",", 1)
+                            5 -> onDirectInsert?.invoke("『", 1)
                             else -> {
-                                onDirectInsert?.invoke(".", 1)
+                                onDirectInsert?.invoke("』", 1)
                                 rStickDownTapCount = 0
                                 rStickDownLastTime = 0
                             }
                         }
                     }
                     GamepadInputMode.DEVANAGARI -> when (rStickDownTapCount) {
-                        // Devanagari: ␣ → । (danda) → ॥ (double danda)
+                        // Devanagari: ␣ → । (danda) → , → ॥ (double danda)（Higgins に合わせた）
                         1 -> onDirectInsert?.invoke(" ", 0)
                         2 -> onDirectInsert?.invoke("।", 1)
+                        3 -> onDirectInsert?.invoke(",", 1)
                         else -> {
                             onDirectInsert?.invoke("॥", 1)
                             rStickDownTapCount = 0
@@ -692,8 +738,8 @@ class GamepadInputManager {
                 if (lStickDown && !prevLStickDown) startConversion()
                 if ((lStickLeft && !prevLStickLeft) || (lStickRight && !prevLStickRight)) {
                     resetComposingState()
-                    if (lStickLeft && !prevLStickLeft) onCursorMove?.invoke(-1)
-                    if (lStickRight && !prevLStickRight) onCursorMove?.invoke(1)
+                    if (lStickLeft && !prevLStickLeft) emitCursor(-1)
+                    if (lStickRight && !prevLStickRight) emitCursor(1)
                 }
             }
             else -> {
@@ -712,10 +758,10 @@ class GamepadInputManager {
                 // Devanagari モードでは LS 方向は varga 選択に使うので、カーソル移動には使わない。
                 // LS 方向入力時はカーソル移動をスキップ（何もしない）。
                 if (currentMode != GamepadInputMode.DEVANAGARI) {
-                    if (lStickLeft && !prevLStickLeft) onCursorMove?.invoke(-1)
-                    if (lStickRight && !prevLStickRight) onCursorMove?.invoke(1)
-                    if (lStickUp && !prevLStickUp) onCursorMoveVertical?.invoke(-1)
-                    if (lStickDown && !prevLStickDown) onCursorMoveVertical?.invoke(1)
+                    if (lStickLeft && !prevLStickLeft) emitCursor(-1)
+                    if (lStickRight && !prevLStickRight) emitCursor(1)
+                    if (lStickUp && !prevLStickUp) emitCursorVertical(-1)
+                    if (lStickDown && !prevLStickDown) emitCursorVertical(1)
                 }
             }
         }
@@ -806,12 +852,12 @@ class GamepadInputManager {
             when {
                 currentMode == GamepadInputMode.JAPANESE && isConverting -> {
                     // 変換中: 表示中の surface を全削除 + composing リセット
-                    onDirectInsert?.invoke("", currentCandidateLength)
+                    emitInsert("", currentCandidateLength)
                     resetComposingState()
                 }
                 currentMode == GamepadInputMode.JAPANESE && hiraganaBuffer.isNotEmpty() -> {
                     // 未変換: テキストフィールド上の原かなも全削除
-                    onDirectInsert?.invoke("", hiraganaBuffer.length)
+                    emitInsert("", hiraganaBuffer.length)
                     resetComposingState()
                 }
             }
@@ -970,7 +1016,12 @@ class GamepadInputManager {
         if (rtNow && !prevRT) { rtUsed = false }
         if (!rtNow && prevRT) {
             if (!rtUsed && !ltNow && now >= nBlockUntil) {
-                emitKana("ん", 0)
+                val continuing = rtCycleLastTime != 0L && (now - rtCycleLastTime) < doubleTapWindow
+                val replaceCount = if (continuing) rtCycleChars[rtCycleIndex].length else 0
+                rtCycleIndex = if (continuing) (rtCycleIndex + 1) % rtCycleChars.size else 0
+                // emitKana → emitInsert が先に巡回を切るので、時刻はその後に入れ直す
+                emitKana(rtCycleChars[rtCycleIndex], replaceCount)
+                rtCycleLastTime = now
             }
             rtUsed = false
         }
@@ -1026,7 +1077,7 @@ class GamepadInputManager {
             onFinalizeComposing?.invoke()
             resetComposingState()
             hiraganaBuffer = kana
-            onDirectInsert?.invoke(kana, 0)
+            emitInsert(kana, 0)
             return
         }
         // バッファ更新を「先に」実施してから callback を呼ぶ
@@ -1040,7 +1091,7 @@ class GamepadInputManager {
         } else {
             hiraganaBuffer += kana
         }
-        onDirectInsert?.invoke(kana, replaceCount)
+        emitInsert(kana, replaceCount)
     }
 
     /// composing バッファとは無関係にテキストを挿入する（確定済みテキストを割り込ませる場合用）。
@@ -1049,7 +1100,7 @@ class GamepadInputManager {
         // 変換中なら先に確定
         if (isConverting) resetComposingState()
         hiraganaBuffer = ""
-        onDirectInsert?.invoke(text, 0)
+        emitInsert(text, 0)
     }
 
     /// 現在のひらがなバッファをかな漢字変換（文節分割）し、候補選択モードに入る。
@@ -1073,7 +1124,7 @@ class GamepadInputManager {
 
             // 全文を組み立てて置換
             val fullSurface = result.candidates.joinToString("") { it.first().surface }
-            onDirectInsert?.invoke(fullSurface, bufferSnapshot.length)
+            emitInsert(fullSurface, bufferSnapshot.length)
             currentCandidateLength = fullSurface.length
             isConverting = true
         }
@@ -1116,7 +1167,7 @@ class GamepadInputManager {
             val idx = bunsetsuSelectedIndices.getOrNull(i) ?: 0
             cands.getOrNull(idx)?.surface ?: ""
         }.joinToString("")
-        onDirectInsert?.invoke(fullSurface, currentCandidateLength)
+        emitInsert(fullSurface, currentCandidateLength)
         currentCandidateLength = fullSurface.length
     }
 
@@ -1172,7 +1223,7 @@ class GamepadInputManager {
     private fun cancelConversion() {
         if (!isConverting) return
         // 候補をひらがなバッファに戻す
-        onDirectInsert?.invoke(hiraganaBuffer, currentCandidateLength)
+        emitInsert(hiraganaBuffer, currentCandidateLength)
         // バッファは残す（再変換を可能にする）
         bunsetsuReadings = emptyList()
         bunsetsuCandidates = emptyList()
@@ -1204,11 +1255,11 @@ class GamepadInputManager {
     ) {
         // --- 右スティック↑: アポストロフィ「'」 ---
         if (rStickUp && !prevRStickUp) {
-            onDirectInsert?.invoke("'", 0)
+            emitInsert("'", 0)
         }
         // --- 右スティック→: スラッシュ「/」 ---
         if (rStickRight && !prevRStickRight) {
-            onDirectInsert?.invoke("/", 0)
+            emitInsert("/", 0)
             englishSmartCaps = false
         }
 
@@ -1254,7 +1305,7 @@ class GamepadInputManager {
                 if (englishCapsLock || englishSmartCaps || englishShiftNext) {
                     char = char.uppercase()
                 }
-                onDirectInsert?.invoke(char, 0)
+                emitInsert(char, 0)
                 englishShiftNext = false
                 // Smart Caps は文字入力では解除しない（句読点/スペースで自動解除）
             }
@@ -1262,7 +1313,7 @@ class GamepadInputManager {
 
         // RT: 数字 0 (ショートカット)
         if (rtNow && !prevRT) {
-            onDirectInsert?.invoke("0", 0)
+            emitInsert("0", 0)
         }
     }
 
@@ -1349,19 +1400,25 @@ class GamepadInputManager {
             return
         }
 
-        // === (1) 받침巻き戻し: 母音エッジで直前の単독받침を取り消す ===
+        // === (1) 받침巻き戻し: 母音エッジで直前の받침を取り消す ===
         // 誤って patchim と解釈された子音を、母音到着で「新音節の onset」として
-        // 再解釈する。겹받침（patchimRollbackCoda != null）は巻き戻さない。
+        // 再解釈する。
+        // ★**겹받침も戻す**（戻し先は 1 つ目の받침）。以前は「겹받침は明示的に 2 回の받침入力で
+        //   作るので分解しない」と除外していたが、前提が成り立たない: 巻き戻せる状態は
+        //   **子音を押している間しか続かない**（離すと `patchimRollbackActive` が落ちる）ので、
+        //   ここに来るのは**その子音が次の音節の頭だった**ときだけ。意図した겹받침は必ず一度
+        //   離すので、戻して困る場面が無い。除外していたせいで `우울해요` が `우욿해요` に
+        //   なっていた（Higgins 実機）。
+        // ★「戻せる」は**成功した받침のあとだけ**立つ（`PatchimResult.Added` のときだけ）。
+        //   不成立の組み合わせで立てると、前の音節の받침まで消える。
         if (vowelNow && patchimRollbackActive) {
-            if (patchimRollbackCoda == null) {
-                koreanComposer.revertCoda(null)
-                // coda なしの状態で音節を再描画
-                val onset = koreanComposer.currentOnset
-                val nucleus = koreanComposer.currentNucleus
-                if (onset != null && nucleus != null) {
-                    val code = 0xAC00 + (onset * 21 + nucleus) * 28
-                    onDirectInsert?.invoke(code.toChar().toString(), 1)
-                }
+            koreanComposer.revertCoda(patchimRollbackCoda)
+            val onset = koreanComposer.currentOnset
+            val nucleus = koreanComposer.currentNucleus
+            if (onset != null && nucleus != null) {
+                val coda = koreanComposer.currentCoda ?: 0
+                val code = 0xAC00 + (onset * 21 + nucleus) * 28 + coda
+                emitInsert(code.toChar().toString(), 1)
             }
             patchimRollbackActive = false
         }
@@ -1384,7 +1441,7 @@ class GamepadInputManager {
             if (prevVowel == null) {
                 // 母音の新規押下 → 新音節開始。eager output として記録
                 val output = koreanComposer.inputSyllable(onsetIdx, nucleusIdx)
-                onDirectInsert?.invoke(output.text, output.replaceCount)
+                emitInsert(output.text, output.replaceCount)
                 eagerChar = output.text
                 eagerCharLen = output.text.length
                 eagerTime = now
@@ -1397,11 +1454,11 @@ class GamepadInputManager {
                     val output = koreanComposer.inputSyllable(onsetIdx, nucleusIdx)
                     // ★RT が着いただけなら**時間窓を見ない**（母音のボタンは離れていない）。
                     if (rtPressed && !rowChanged && !vowelChanged) {
-                        onDirectInsert?.invoke(output.text, eagerCharLen)
+                        emitInsert(output.text, eagerCharLen)
                     } else if (eagerChar != null && (now - eagerTime) < chordWindow) {
-                        onDirectInsert?.invoke(output.text, eagerCharLen)
+                        emitInsert(output.text, eagerCharLen)
                     } else {
-                        onDirectInsert?.invoke(output.text, output.replaceCount)
+                        emitInsert(output.text, output.replaceCount)
                     }
                     eagerChar = output.text
                     eagerCharLen = output.text.length
@@ -1437,7 +1494,7 @@ class GamepadInputManager {
                 val codaIdx = KOREAN_CODA_FOR_ROW[row]
                 val result = koreanComposer.inputPatchim(codaIdx, row)
                 if (result is PatchimResult.Added) {
-                    onDirectInsert?.invoke(result.output.text, result.output.replaceCount)
+                    emitInsert(result.output.text, result.output.replaceCount)
                     patchimRollbackCoda = prevCoda
                     patchimRollbackActive = true
                     allReleasedSinceSyllable = false
@@ -1448,7 +1505,7 @@ class GamepadInputManager {
                 val codaIdx = KOREAN_CODA_FOR_ROW[row]
                 val result = koreanComposer.inputPatchim(codaIdx, row)
                 if (result is PatchimResult.Added) {
-                    onDirectInsert?.invoke(result.output.text, result.output.replaceCount)
+                    emitInsert(result.output.text, result.output.replaceCount)
                 }
             }
         }
@@ -1462,7 +1519,7 @@ class GamepadInputManager {
                 val nextCoda = KOREAN_CODA_CYCLE[currentCoda]
                 if (nextCoda != null) {
                     val output = koreanComposer.modifyCoda(nextCoda)
-                    if (output != null) onDirectInsert?.invoke(output.text, output.replaceCount)
+                    if (output != null) emitInsert(output.text, output.replaceCount)
                 }
             } else {
                 val currentOnset = koreanComposer.currentOnset
@@ -1470,7 +1527,7 @@ class GamepadInputManager {
                     val nextOnset = KOREAN_ONSET_CYCLE[currentOnset]
                     if (nextOnset != null) {
                         val output = koreanComposer.modifyOnset(nextOnset)
-                        if (output != null) onDirectInsert?.invoke(output.text, output.replaceCount)
+                        if (output != null) emitInsert(output.text, output.replaceCount)
                     }
                 }
             }
@@ -1483,7 +1540,7 @@ class GamepadInputManager {
                 val newNucleus = KOREAN_NUCLEUS_ADD_I[nucleus]
                 if (newNucleus != null) {
                     val output = koreanComposer.modifyNucleus(newNucleus)
-                    if (output != null) onDirectInsert?.invoke(output.text, output.replaceCount)
+                    if (output != null) emitInsert(output.text, output.replaceCount)
                 }
             }
         }
@@ -1502,7 +1559,7 @@ class GamepadInputManager {
                 val newNucleus = KOREAN_NUCLEUS_ADD_AEO[nucleus]
                 if (newNucleus != null) {
                     val output = koreanComposer.modifyNucleus(newNucleus)
-                    if (output != null) onDirectInsert?.invoke(output.text, output.replaceCount)
+                    if (output != null) emitInsert(output.text, output.replaceCount)
                 }
             }
         }
@@ -1563,18 +1620,19 @@ class GamepadInputManager {
                     // Row 0 (ㅇ) は D-pad/LB のどれも押さない位置なので
                     // 通常の chord 経路で入力不可。LT にその役割を与える。
                     val jamoChar = koreanCompatJamoOnset(11).toString()  // ㅇ
-                    onDirectInsert?.invoke(jamoChar, 0)
+                    emitInsert(jamoChar, 0)
                     lastJamoText = jamoChar
                     lastJamoOnsetIndex = 11
                     jamoEagerText = null
                 } else if (koreanLTShortTapEligible) {
                     // 音節合成中: ㅇ받침
                     val codaIdx = KOREAN_CODA_FOR_ROW[0]  // ㅇ
+                    val prevCoda = koreanComposer.currentCoda
                     val result = koreanComposer.inputPatchim(codaIdx, 0)
                     if (result is PatchimResult.Added) {
-                        patchimRollbackCoda = null
+                        patchimRollbackCoda = prevCoda
                         patchimRollbackActive = true
-                        onDirectInsert?.invoke(result.output.text, result.output.replaceCount)
+                        emitInsert(result.output.text, result.output.replaceCount)
                         allReleasedSinceSyllable = false
                     }
                 }
@@ -1623,7 +1681,7 @@ class GamepadInputManager {
         if (lbReleased && jamoLbOnlyPending) {
             val onsetIdx = KOREAN_ONSET_FOR_ROW[5]  // ㅁ
             val jamoChar = koreanCompatJamoOnset(onsetIdx).toString()
-            onDirectInsert?.invoke(jamoChar, 0)
+            emitInsert(jamoChar, 0)
             lastJamoText = jamoChar
             lastJamoOnsetIndex = onsetIdx
             jamoEagerText = null
@@ -1641,7 +1699,7 @@ class GamepadInputManager {
             when {
                 !prevDpadDirActive -> {
                     // 方向キーの新規押下（LB が先行していても row は LB 込みで解決済み）
-                    onDirectInsert?.invoke(jamoChar, 0)
+                    emitInsert(jamoChar, 0)
                     jamoEagerText = jamoChar
                     jamoEagerLen = jamoChar.length
                     jamoEagerTime = now
@@ -1653,9 +1711,9 @@ class GamepadInputManager {
                     // （LB 単独リリースや他の row 変化では refine しない: 直前の選択を尊重）
                     val elapsed = now - jamoEagerTime
                     if (elapsed < chordWindow && jamoEagerText != null) {
-                        onDirectInsert?.invoke(jamoChar, jamoEagerLen)
+                        emitInsert(jamoChar, jamoEagerLen)
                     } else {
-                        onDirectInsert?.invoke(jamoChar, 0)
+                        emitInsert(jamoChar, 0)
                     }
                     jamoEagerText = jamoChar
                     jamoEagerLen = jamoChar.length
@@ -1675,7 +1733,7 @@ class GamepadInputManager {
             val v = vowel!!.index
             val nucleusIdx = if (rtNow) KOREAN_NUCLEUS_SHIFTED[v] else KOREAN_NUCLEUS_BASE[v]
             val jamoChar = koreanCompatJamoNucleus(nucleusIdx).toString()
-            onDirectInsert?.invoke(jamoChar, 0)
+            emitInsert(jamoChar, 0)
             lastJamoText = jamoChar
             lastJamoOnsetIndex = null
             // 母音が来たら子音 eager は終了
@@ -1686,7 +1744,7 @@ class GamepadInputManager {
         if (rStickRight && !prevRStickRight) {
             val last = lastJamoText
             if (last != null) {
-                onDirectInsert?.invoke(last, 0)
+                emitInsert(last, 0)
                 // lastJamoText / lastJamoOnsetIndex はそのまま（連打続行可能）
                 // ↑ サイクルを直後に押した場合も直前字母を対象にする
                 jamoEagerText = null  // 連打は chord refine の対象外
@@ -1701,7 +1759,7 @@ class GamepadInputManager {
                 val nextOnset = KOREAN_ONSET_CYCLE[lastOnset]
                 if (nextOnset != null) {
                     val newChar = koreanCompatJamoOnset(nextOnset).toString()
-                    onDirectInsert?.invoke(newChar, lastLen)
+                    emitInsert(newChar, lastLen)
                     lastJamoText = newChar
                     lastJamoOnsetIndex = nextOnset
                     // まだ子音が押されたままなら eager も連動させる
@@ -1763,10 +1821,10 @@ class GamepadInputManager {
             // RT 押下中: カーソル移動
             if (lsPushEdge) {
                 when (rawLsDir) {
-                    DevaLsDirection.LEFT -> onCursorMove?.invoke(-1)
-                    DevaLsDirection.RIGHT -> onCursorMove?.invoke(1)
-                    DevaLsDirection.UP -> onCursorMoveVertical?.invoke(-1)
-                    DevaLsDirection.DOWN -> onCursorMoveVertical?.invoke(1)
+                    DevaLsDirection.LEFT -> emitCursor(-1)
+                    DevaLsDirection.RIGHT -> emitCursor(1)
+                    DevaLsDirection.UP -> emitCursorVertical(-1)
+                    DevaLsDirection.DOWN -> emitCursorVertical(1)
                     DevaLsDirection.NEUTRAL -> {}
                 }
                 devaRtUsedForCursor = true
@@ -1818,7 +1876,7 @@ class GamepadInputManager {
             }
             if (consonant != null) {
                 val out = devanagariComposer.inputConsonant(consonant)
-                onDirectInsert?.invoke(out.text, out.replaceCount)
+                emitInsert(out.text, out.replaceCount)
                 // 非 varga サブレイヤーは 1 文字入力で自動 OFF（one-shot）。
                 // 連続 2 文字非 varga が必要な場合は L3 を再度押す。
                 if (devaNonVargaActive) {
@@ -1836,7 +1894,7 @@ class GamepadInputManager {
         if (lbEdge) {
             val nasal = DEVA_VARGA_CONSONANTS[varga.index][4]
             val out = devanagariComposer.inputConsonant(nasal)
-            onDirectInsert?.invoke(out.text, out.replaceCount)
+            emitInsert(out.text, out.replaceCount)
             // 前置シフト: 左手側出力で LS latch を消費してリセット。
             devaLsDir = DevaLsDirection.NEUTRAL
         }
@@ -1853,10 +1911,10 @@ class GamepadInputManager {
             if (matra != null && indep != null) {
                 val matraOut = devanagariComposer.inputMatra(matra)
                 if (matraOut != null) {
-                    onDirectInsert?.invoke(matraOut.text, matraOut.replaceCount)
+                    emitInsert(matraOut.text, matraOut.replaceCount)
                 } else {
                     val out = devanagariComposer.inputIndependentVowel(indep)
-                    onDirectInsert?.invoke(out.text, out.replaceCount)
+                    emitInsert(out.text, out.replaceCount)
                 }
             }
         }
@@ -1869,7 +1927,7 @@ class GamepadInputManager {
         if (bothTriggersHeld && !bothTriggersWerePrevHeld) {
             val out = devanagariComposer.inputVisarga()
             if (out != null) {
-                onDirectInsert?.invoke(out.text, out.replaceCount)
+                emitInsert(out.text, out.replaceCount)
                 devaRtUsedForCursor = true
             }
         }
@@ -1879,7 +1937,7 @@ class GamepadInputManager {
         if (!rtNow && prevRT) {
             if (!devaRtUsedForCursor) {
                 val out = devanagariComposer.inputHalant()
-                if (out != null) onDirectInsert?.invoke(out.text, out.replaceCount)
+                if (out != null) emitInsert(out.text, out.replaceCount)
             }
             devaRtUsedForCursor = false
         }
@@ -1889,14 +1947,14 @@ class GamepadInputManager {
         if (gp.rb && !prevRB) {
             if (ltNow) {
                 val out = devanagariComposer.inputNukta()
-                if (out != null) onDirectInsert?.invoke(out.text, out.replaceCount)
+                if (out != null) emitInsert(out.text, out.replaceCount)
             } else {
                 val matraOut = devanagariComposer.inputMatra('ो')
                 if (matraOut != null) {
-                    onDirectInsert?.invoke(matraOut.text, matraOut.replaceCount)
+                    emitInsert(matraOut.text, matraOut.replaceCount)
                 } else {
                     val out = devanagariComposer.inputIndependentVowel('ओ')
-                    onDirectInsert?.invoke(out.text, out.replaceCount)
+                    emitInsert(out.text, out.replaceCount)
                 }
             }
         }
@@ -1909,13 +1967,13 @@ class GamepadInputManager {
         if (rStickUp && !prevRStickUp) {
             val out = if (ltNow) devanagariComposer.applyCandra()
                       else devanagariComposer.toggleAnusvara()
-            if (out != null) onDirectInsert?.invoke(out.text, out.replaceCount)
+            if (out != null) emitInsert(out.text, out.replaceCount)
         }
 
         // === RS →: 長母音 post-shift（直前 matra / 独立母音を長形に）===
         if (rStickRight && !prevRStickRight) {
             val out = devanagariComposer.applyLongShift()
-            if (out != null) onDirectInsert?.invoke(out.text, out.replaceCount)
+            if (out != null) emitInsert(out.text, out.replaceCount)
         }
 
         // --- 次フレーム用 state 保存 ---
